@@ -39,21 +39,41 @@ android {
             )
         }
     }
+    
+    // Updated packaging configuration
+    packaging {
+        // For .so files (native libraries)
+        jniLibs {
+            pickFirsts += "**/libc++_shared.so"
+            pickFirsts += "**/libjsc.so"
+        }
+        // For other resources
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/DEPENDENCIES"
+            excludes += "META-INF/LICENSE"
+            excludes += "META-INF/LICENSE.txt"
+            excludes += "META-INF/NOTICE"
+            excludes += "META-INF/NOTICE.txt"
+        }
+    }
+    
+    // Updated Kotlin compiler options
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
-    kotlinOptions {
-        jvmTarget = "1.8"
+    
+    kotlin {
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+        }
     }
+    
     buildFeatures {
         compose = true
     }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
+    
     lint {
         baseline = file("lint-baseline.xml")
         abortOnError = false
@@ -91,6 +111,26 @@ dependencies {
     
     // Bluetooth
     implementation(libs.nordic.ble)
+    
+    // MoneroJ for Monero wallet functionality
+    implementation("io.github.woodser:monero-java:0.8.33") {
+        exclude(group = "javax.activation")
+        exclude(group = "java.desktop")
+    }
+
+    // JSON processing (if not already included)
+    implementation("org.json:json:20231013")
+
+    // Logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+
+    // Networking (for Monero RPC if needed)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+
+    // Security for wallet encryption
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")    
 
     // WebSocket
     implementation(libs.okhttp)
