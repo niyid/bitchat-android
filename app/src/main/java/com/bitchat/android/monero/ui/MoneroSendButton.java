@@ -18,6 +18,7 @@ public class MoneroSendButton extends AppCompatButton {
     
     private SendMode currentMode = SendMode.MESSAGE;
     private OnModeChangeListener modeChangeListener;
+    private OnClickListener externalClickListener;
     private GradientDrawable messageBackground;
     private GradientDrawable moneroBackground;
     
@@ -27,7 +28,7 @@ public class MoneroSendButton extends AppCompatButton {
     private static final int TEXT_COLOR = Color.WHITE;
     
     // Monero symbol
-    private static final String MONERO_SYMBOL = "ɱ";
+    private static final String MONERO_SYMBOL = "Ɱ";
     private static final String MESSAGE_TEXT = "Send";
     
     public interface OnModeChangeListener {
@@ -70,11 +71,9 @@ public class MoneroSendButton extends AppCompatButton {
     }
     
     private void setupClickListener() {
-        setOnClickListener(new OnClickListener() {
+        super.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View v) {
-                // Don't toggle mode on regular click
-                // Mode toggling happens via long press or external call
                 handleSendAction();
             }
         });
@@ -86,6 +85,12 @@ public class MoneroSendButton extends AppCompatButton {
                 return true; // Consume the long click
             }
         });
+    }
+    
+    @Override
+    public void setOnClickListener(OnClickListener listener) {
+        // Store the external click listener instead of setting it directly
+        this.externalClickListener = listener;
     }
     
     public void toggleMode() {
@@ -124,30 +129,9 @@ public class MoneroSendButton extends AppCompatButton {
     }
     
     private void handleSendAction() {
-        // This will be handled by the parent activity/fragment
-        // Just trigger the appropriate action based on current mode
-        if (currentMode == SendMode.MONERO) {
-            // Trigger Monero send
-            performMoneroSend();
-        } else {
-            // Trigger message send
-            performMessageSend();
-        }
-    }
-    
-    private void performMoneroSend() {
-        // This will be implemented in the chat activity
-        // For now, just call the listener if available
-        if (onClickListener != null) {
-            onClickListener.onClick(this);
-        }
-    }
-    
-    private void performMessageSend() {
-        // This will be implemented in the chat activity
-        // For now, just call the listener if available
-        if (onClickListener != null) {
-            onClickListener.onClick(this);
+        // Call the external click listener if it's set
+        if (externalClickListener != null) {
+            externalClickListener.onClick(this);
         }
     }
     

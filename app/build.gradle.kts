@@ -8,7 +8,13 @@ plugins {
 android {
     namespace = "com.bitchat.android"
     compileSdk = libs.versions.compileSdk.get().toInt()
-
+    
+    packaging {
+        resources {
+            excludes += setOf("META-INF/LICENSE.md", "META-INF/LICENSE-NOTICE.md", "META-INF/NOTICE.md")
+        }
+    }
+        
     defaultConfig {
         applicationId = "com.bitchat.droid"
         minSdk = libs.versions.minSdk.get().toInt()
@@ -60,13 +66,13 @@ android {
     
     // Updated Kotlin compiler options
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     
     kotlin {
         compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
     
@@ -113,7 +119,8 @@ dependencies {
     implementation(libs.nordic.ble)
     
     // MoneroJ for Monero wallet functionality
-    implementation("io.github.woodser:monero-java:0.8.33") {
+    //implementation("com.github.m2049r:xmrwallet:3.4.3")
+    implementation("io.github.woodser:monero-java:0.8.38") {
         exclude(group = "javax.activation")
         exclude(group = "java.desktop")
     }
@@ -128,6 +135,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
 
     // Security for wallet encryption
     implementation("androidx.security:security-crypto:1.1.0-alpha06")    
