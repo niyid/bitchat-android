@@ -347,8 +347,4 @@ public class MoneroMessageHandler {
             return messageContent;
         }
     }
-}_PAYMENT:
-                    handlePaymentMessage(json, fromUser);
-                    return true;
-                    
-                case TYPE_MONERO
+}
