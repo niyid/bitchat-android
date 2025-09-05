@@ -8,30 +8,41 @@ import java.io.File;
 import java.math.BigInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
-import monero.wallet.MoneroWallet;
+import monero.wallet.MoneroWalletFull;
 import monero.wallet.MoneroWalletRpc;
 import monero.wallet.model.MoneroWalletConfig;
-import monero.common.MoneroNetworkType;
+import monero.wallet.model.MoneroTxConfig;
+import monero.daemon.model.MoneroNetworkType;
 import monero.wallet.model.MoneroTxWallet;
 import monero.wallet.model.MoneroDestination;
+import monero.wallet.model.MoneroWalletListener;
+import monero.wallet.model.MoneroOutputWallet;
 
 /**
- * Manages Monero wallet operations for BitChat
- * Handles wallet creation, transactions, and balance management
+ * Enhanced Monero wallet manager for BitChat
+ * Handles wallet creation, transactions, and balance management with proper error handling
  */
 public class MoneroWalletManager {
     
     private static final String TAG = "MoneroWalletManager";
     private static final String WALLET_NAME = "bitchat_wallet";
     private static final String WALLET_PASSWORD = "bitchat_secure_pass"; // In production, use proper key derivation
+    private static final long SYNC_PERIOD_MS = 5000L;
     
     private static MoneroWalletManager instance;
-    private MoneroWallet wallet;
+    private MoneroWalletFull wallet;
     private Context context;
     private ExecutorService executorService;
     private Handler mainHandler;
     private boolean isInitialized = false;
+    private boolean isSyncing = false;
+    
+    // Configuration
+    private String daemonUri = "http://localhost:18081"; // Default mainnet daemon
+    private String daemonUsername = null;
+    private String daemonPassword = null;
     
     // Listeners
     private WalletStatusListener statusListener;
@@ -40,7 +51,8 @@ public class MoneroWalletManager {
     public interface WalletStatusListener {
         void onWalletInitialized(boolean success, String message);
         void onBalanceUpdated(BigInteger balance, BigInteger unlockedBalance);
-        void onSyncProgress(long height, long targetHeight);
+        void onSyncProgress(long height, long startHeight, long endHeight, double percentDone);
+        void onOutputReceived(BigInteger amount, String txHash, boolean isConfirmed);
     }
     
     public interface TransactionListener {
@@ -63,13 +75,22 @@ public class MoneroWalletManager {
     }
     
     /**
+     * Set daemon configuration
+     */
+    public void setDaemonConfig(String uri, String username, String password) {
+        this.daemonUri = uri;
+        this.daemonUsername = username;
+        this.daemonPassword = password;
+    }
+    
+    /**
      * Initialize the wallet (create or open existing)
      */
     public void initializeWallet() {
         executorService.execute(() -> {
             try {
                 String walletPath = getWalletPath();
-                File walletFile = new File(walletPath);
+                File walletFile = new File(walletPath + ".keys"); // Monero wallets have .keys extension
                 
                 if (walletFile.exists()) {
                     // Open existing wallet
@@ -80,6 +101,7 @@ public class MoneroWalletManager {
                 }
                 
                 if (wallet != null) {
+                    setupWalletListeners();
                     isInitialized = true;
                     // Start background sync
                     startBackgroundSync();
@@ -95,41 +117,126 @@ public class MoneroWalletManager {
         });
     }
     
-    private void createNewWallet(String walletPath) {
-        try {
-            Log.d(TAG, "Creating new wallet at: " + walletPath);
-            
-            MoneroWalletConfig config = new MoneroWalletConfig()
-                .setPath(walletPath)
-                .setPassword(WALLET_PASSWORD)
-                .setNetworkType(MoneroNetworkType.MAINNET)
-                .setRestoreHeight(0L);
-            
-            wallet = MoneroWallet.createWallet(config);
-            Log.d(TAG, "New wallet created successfully");
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error creating new wallet", e);
-            throw e;
-        }
+    /**
+     * Initialize wallet from seed phrase
+     */
+    public void initializeWalletFromSeed(String seedPhrase, Long restoreHeight) {
+        executorService.execute(() -> {
+            try {
+                String walletPath = getWalletPath();
+                createWalletFromSeed(walletPath, seedPhrase, restoreHeight);
+                
+                if (wallet != null) {
+                    setupWalletListeners();
+                    isInitialized = true;
+                    startBackgroundSync();
+                    notifyWalletInitialized(true, "Wallet restored from seed successfully");
+                } else {
+                    notifyWalletInitialized(false, "Failed to restore wallet from seed");
+                }
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Error restoring wallet from seed", e);
+                notifyWalletInitialized(false, "Error: " + e.getMessage());
+            }
+        });
     }
     
-    private void openExistingWallet(String walletPath) {
-        try {
-            Log.d(TAG, "Opening existing wallet at: " + walletPath);
-            
-            MoneroWalletConfig config = new MoneroWalletConfig()
-                .setPath(walletPath)
-                .setPassword(WALLET_PASSWORD)
-                .setNetworkType(MoneroNetworkType.MAINNET);
-            
-            wallet = MoneroWallet.openWallet(config);
-            Log.d(TAG, "Existing wallet opened successfully");
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error opening existing wallet", e);
-            throw e;
+    private void createNewWallet(String walletPath) throws Exception {
+        Log.d(TAG, "Creating new wallet at: " + walletPath);
+        
+        MoneroWalletConfig config = new MoneroWalletConfig()
+            .setPath(walletPath)
+            .setPassword(WALLET_PASSWORD)
+            .setNetworkType(MoneroNetworkType.MAINNET)
+            .setServerUri(daemonUri)
+            .setRestoreHeight(0L);
+        
+        if (daemonUsername != null) {
+            config.setServerUsername(daemonUsername);
         }
+        if (daemonPassword != null) {
+            config.setServerPassword(daemonPassword);
+        }
+        
+        wallet = MoneroWalletFull.createWallet(config);
+        Log.d(TAG, "New wallet created successfully");
+    }
+    
+    private void createWalletFromSeed(String walletPath, String seedPhrase, Long restoreHeight) throws Exception {
+        Log.d(TAG, "Creating wallet from seed at: " + walletPath);
+        
+        MoneroWalletConfig config = new MoneroWalletConfig()
+            .setPath(walletPath)
+            .setPassword(WALLET_PASSWORD)
+            .setNetworkType(MoneroNetworkType.MAINNET)
+            .setServerUri(daemonUri)
+            .setSeed(seedPhrase)
+            .setRestoreHeight(restoreHeight != null ? restoreHeight : 0L);
+        
+        if (daemonUsername != null) {
+            config.setServerUsername(daemonUsername);
+        }
+        if (daemonPassword != null) {
+            config.setServerPassword(daemonPassword);
+        }
+        
+        wallet = MoneroWalletFull.createWallet(config);
+        Log.d(TAG, "Wallet created from seed successfully");
+    }
+    
+    private void openExistingWallet(String walletPath) throws Exception {
+        Log.d(TAG, "Opening existing wallet at: " + walletPath);
+        
+        MoneroWalletConfig config = new MoneroWalletConfig()
+            .setPath(walletPath)
+            .setPassword(WALLET_PASSWORD)
+            .setNetworkType(MoneroNetworkType.MAINNET)
+            .setServerUri(daemonUri);
+        
+        if (daemonUsername != null) {
+            config.setServerUsername(daemonUsername);
+        }
+        if (daemonPassword != null) {
+            config.setServerPassword(daemonPassword);
+        }
+        
+        wallet = MoneroWalletFull.openWallet(config);
+        Log.d(TAG, "Existing wallet opened successfully");
+    }
+    
+    private void setupWalletListeners() {
+        if (wallet == null) return;
+        
+        wallet.addListener(new MoneroWalletListener() {
+            @Override
+            public void onSyncProgress(long height, long startHeight, long endHeight, double percentDone, String message) {
+                if (statusListener != null) {
+                    mainHandler.post(() -> statusListener.onSyncProgress(height, startHeight, endHeight, percentDone));
+                }
+            }
+            
+            @Override
+            public void onOutputReceived(MoneroOutputWallet output) {
+                BigInteger amount = output.getAmount();
+                String txHash = output.getTx().getHash();
+                Boolean isConfirmed = output.getTx().isConfirmed();
+                
+                if (statusListener != null) {
+                    mainHandler.post(() -> statusListener.onOutputReceived(amount, txHash, isConfirmed));
+                }
+                
+                // Update balance when output is received
+                updateBalance();
+            }
+            
+            @Override
+            public void onBalancesChanged(BigInteger newBalance, BigInteger newUnlockedBalance) {
+                if (statusListener != null) {
+                    mainHandler.post(() -> statusListener.onBalanceUpdated(newBalance, newUnlockedBalance));
+                }
+            }
+        });
     }
     
     private String getWalletPath() {
@@ -144,7 +251,7 @@ public class MoneroWalletManager {
      * Get the wallet's primary address
      */
     public void getAddress(AddressCallback callback) {
-        if (!isInitialized) {
+        if (!isInitialized || wallet == null) {
             callback.onError("Wallet not initialized");
             return;
         }
@@ -169,7 +276,7 @@ public class MoneroWalletManager {
      * Get wallet balance
      */
     public void getBalance(BalanceCallback callback) {
-        if (!isInitialized) {
+        if (!isInitialized || wallet == null) {
             callback.onError("Wallet not initialized");
             return;
         }
@@ -192,10 +299,29 @@ public class MoneroWalletManager {
     }
     
     /**
-     * Send Monero to an address
+     * Update balance and notify listeners
+     */
+    private void updateBalance() {
+        if (!isInitialized || wallet == null) return;
+        
+        executorService.execute(() -> {
+            try {
+                BigInteger balance = wallet.getBalance();
+                BigInteger unlockedBalance = wallet.getUnlockedBalance();
+                if (statusListener != null) {
+                    mainHandler.post(() -> statusListener.onBalanceUpdated(balance, unlockedBalance));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error updating balance", e);
+            }
+        });
+    }
+    
+    /**
+     * Send Monero to an address using proper transaction configuration
      */
     public void sendMonero(String toAddress, String amount, SendCallback callback) {
-        if (!isInitialized) {
+        if (!isInitialized || wallet == null) {
             callback.onError("Wallet not initialized");
             return;
         }
@@ -205,20 +331,28 @@ public class MoneroWalletManager {
                 // Convert amount from XMR to atomic units
                 BigInteger atomicAmount = convertXmrToAtomic(amount);
                 
-                // Create destination
-                MoneroDestination destination = new MoneroDestination(toAddress, atomicAmount);
+                // Create transaction configuration
+                MoneroTxConfig txConfig = new MoneroTxConfig()
+                    .setAccountIndex(0)
+                    .setAddress(toAddress)
+                    .setAmount(atomicAmount.toString())
+                    .setRelay(false); // Create first, then relay after confirmation
                 
-                // Create and relay transaction
-                MoneroTxWallet tx = wallet.createTx(destination);
+                // Create transaction
+                MoneroTxWallet tx = wallet.createTx(txConfig);
                 String txId = tx.getHash();
+                BigInteger fee = tx.getFee();
                 
-                Log.d(TAG, "Transaction created: " + txId);
+                Log.d(TAG, "Transaction created: " + txId + ", Fee: " + convertAtomicToXmr(fee) + " XMR");
+                
+                // Relay the transaction
+                wallet.relayTx(tx);
                 
                 if (transactionListener != null) {
                     mainHandler.post(() -> transactionListener.onTransactionCreated(txId, atomicAmount));
                 }
                 
-                mainHandler.post(() -> callback.onSuccess(txId, atomicAmount));
+                mainHandler.post(() -> callback.onSuccess(txId, atomicAmount, fee));
                 
             } catch (Exception e) {
                 Log.e(TAG, "Error sending Monero", e);
@@ -232,7 +366,7 @@ public class MoneroWalletManager {
     }
     
     public interface SendCallback {
-        void onSuccess(String txId, BigInteger amount);
+        void onSuccess(String txId, BigInteger amount, BigInteger fee);
         void onError(String error);
     }
     
@@ -243,31 +377,71 @@ public class MoneroWalletManager {
     private BigInteger convertXmrToAtomic(String xmrAmount) {
         try {
             double xmr = Double.parseDouble(xmrAmount);
-            double piconeros = xmr * Math.pow(10, 12);
-            return BigInteger.valueOf((long) piconeros);
+            // Use BigInteger arithmetic for precision
+            BigInteger multiplier = BigInteger.valueOf(1000000000000L); // 10^12
+            BigInteger xmrBig = BigInteger.valueOf((long)(xmr * 1000000000000L));
+            return xmrBig;
         } catch (NumberFormatException e) {
             throw new IllegalArgumentException("Invalid amount format: " + xmrAmount);
         }
     }
     
     /**
-     * Convert atomic units to XMR
+     * Convert atomic units to XMR with better precision
      */
     public static String convertAtomicToXmr(BigInteger atomic) {
-        double xmr = atomic.doubleValue() / Math.pow(10, 12);
+        if (atomic == null) return "0.000000";
+        double xmr = atomic.doubleValue() / 1000000000000.0; // 10^12
         return String.format("%.6f", xmr);
+    }
+    
+    /**
+     * Perform manual sync
+     */
+    public void syncWallet(SyncCallback callback) {
+        if (!isInitialized || wallet == null) {
+            callback.onError("Wallet not initialized");
+            return;
+        }
+        
+        executorService.execute(() -> {
+            try {
+                // Sync with progress monitoring
+                wallet.sync(new MoneroWalletListener() {
+                    @Override
+                    public void onSyncProgress(long height, long startHeight, long endHeight, double percentDone, String message) {
+                        if (statusListener != null) {
+                            mainHandler.post(() -> statusListener.onSyncProgress(height, startHeight, endHeight, percentDone));
+                        }
+                    }
+                });
+                
+                mainHandler.post(() -> callback.onSuccess("Sync completed"));
+                updateBalance();
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Error syncing wallet", e);
+                mainHandler.post(() -> callback.onError(e.getMessage()));
+            }
+        });
+    }
+    
+    public interface SyncCallback {
+        void onSuccess(String message);
+        void onError(String error);
     }
     
     /**
      * Start background sync
      */
     private void startBackgroundSync() {
-        if (wallet == null) return;
+        if (wallet == null || isSyncing) return;
         
         executorService.execute(() -> {
             try {
-                wallet.startSyncing(5000); // Sync every 5 seconds
-                Log.d(TAG, "Background sync started");
+                wallet.startSyncing(SYNC_PERIOD_MS);
+                isSyncing = true;
+                Log.d(TAG, "Background sync started with period: " + SYNC_PERIOD_MS + "ms");
             } catch (Exception e) {
                 Log.e(TAG, "Error starting sync", e);
             }
@@ -278,12 +452,37 @@ public class MoneroWalletManager {
      * Stop background sync
      */
     public void stopSync() {
-        if (wallet != null) {
+        if (wallet != null && isSyncing) {
             try {
                 wallet.stopSyncing();
+                isSyncing = false;
+                Log.d(TAG, "Background sync stopped");
             } catch (Exception e) {
                 Log.e(TAG, "Error stopping sync", e);
             }
+        }
+    }
+    
+    /**
+     * Check if wallet is currently syncing
+     */
+    public boolean isSyncing() {
+        return isSyncing && wallet != null;
+    }
+    
+    /**
+     * Save wallet
+     */
+    public void saveWallet() {
+        if (wallet != null) {
+            executorService.execute(() -> {
+                try {
+                    wallet.save();
+                    Log.d(TAG, "Wallet saved");
+                } catch (Exception e) {
+                    Log.e(TAG, "Error saving wallet", e);
+                }
+            });
         }
     }
     
@@ -294,18 +493,30 @@ public class MoneroWalletManager {
         executorService.execute(() -> {
             try {
                 if (wallet != null) {
-                    wallet.close();
+                    if (isSyncing) {
+                        wallet.stopSyncing();
+                        isSyncing = false;
+                    }
+                    wallet.close(true); // Save before closing
                     wallet = null;
                 }
                 isInitialized = false;
-                Log.d(TAG, "Wallet closed");
+                Log.d(TAG, "Wallet closed and saved");
             } catch (Exception e) {
                 Log.e(TAG, "Error closing wallet", e);
             }
         });
         
-        if (executorService != null) {
+        if (executorService != null && !executorService.isShutdown()) {
             executorService.shutdown();
+            try {
+                if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
     }
     
@@ -336,7 +547,7 @@ public class MoneroWalletManager {
      * Get wallet seed phrase for backup
      */
     public void getSeedPhrase(SeedCallback callback) {
-        if (!isInitialized) {
+        if (!isInitialized || wallet == null) {
             callback.onError("Wallet not initialized");
             return;
         }
@@ -354,6 +565,34 @@ public class MoneroWalletManager {
     
     public interface SeedCallback {
         void onSuccess(String seedPhrase);
+        void onError(String error);
+    }
+    
+    /**
+     * Get sync height information
+     */
+    public void getSyncInfo(SyncInfoCallback callback) {
+        if (!isInitialized || wallet == null) {
+            callback.onError("Wallet not initialized");
+            return;
+        }
+        
+        executorService.execute(() -> {
+            try {
+                long height = wallet.getHeight();
+                long daemonHeight = wallet.getDaemonHeight();
+                boolean isSynced = height >= daemonHeight;
+                
+                mainHandler.post(() -> callback.onSuccess(height, daemonHeight, isSynced));
+            } catch (Exception e) {
+                Log.e(TAG, "Error getting sync info", e);
+                mainHandler.post(() -> callback.onError(e.getMessage()));
+            }
+        });
+    }
+    
+    public interface SyncInfoCallback {
+        void onSuccess(long walletHeight, long daemonHeight, boolean isSynced);
         void onError(String error);
     }
 }
