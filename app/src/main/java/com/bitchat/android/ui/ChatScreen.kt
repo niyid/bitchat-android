@@ -101,7 +101,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     if (success) {
                         walletStatusMessage = "Wallet ready"
                         getBalance(object : MoneroWalletManager.BalanceCallback {
-                            override fun onSuccess(balance: BigInteger, unlockedBalance: BigInteger) {
+                            override fun onSuccess(balance: Long, unlockedBalance: Long) {
                                 currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
                             }
                             override fun onError(error: String) {
@@ -113,11 +113,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     }
                 }
 
-                override fun onBalanceUpdated(balance: BigInteger, unlockedBalance: BigInteger) {
+                override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
                     currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
                 }
 
-                override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
+                override fun onSyncProgress(height: Long, targetHeight: Long, percentDone: Double) {
                     isSyncing = percentDone < 1.0
                     syncProgress = (percentDone * 100).toInt()
                     
@@ -130,7 +130,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             })
 
             setTransactionListener(object : MoneroWalletManager.TransactionListener {
-                override fun onTransactionCreated(txId: String, amount: BigInteger) {
+                override fun onTransactionCreated(txId: String, amount: Long) {
                     val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
                     viewModel.addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
                 }
@@ -145,14 +145,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     viewModel.addSystemMessage("❌ Transaction failed: $txId - $error")
                 }
 
-                override fun onOutputReceived(amount: BigInteger, txHash: String, isConfirmed: Boolean) {
+                override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
                     val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
                     val status = if (isConfirmed) "confirmed" else "pending"
                     viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                 }
             })
 
-            initializeWallet()
+            initializeWallet(true)
         }
 
         moneroMessageHandler = MoneroMessageHandler().apply {
@@ -506,9 +506,9 @@ private fun handleMoneroSend(
 
     moneroWalletManager.sendMonero(
         peerMoneroAddress, 
-        amount,
+        amount?.toLongOrNull() ?: 0L,
         object : MoneroWalletManager.SendCallback {
-            override fun onSuccess(txId: String, atomicAmount: BigInteger, fee: BigInteger) {
+            override fun onSuccess(txId: String, atomicAmount: Long) {
                 val successMessage = "💰 Sent $amount XMR (pending)"
                 // Update last message or add new one
                 viewModel.sendMessage(successMessage)
