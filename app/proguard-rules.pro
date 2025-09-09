@@ -17,3 +17,11 @@
 -keep class com.bitchat.android.nostr.** { *; }
 -keep class com.bitchat.android.identity.** { *; }
 -dontwarn org.slf4j.impl.StaticLoggerBinder
+# Keep Monerujo classes
+-keep class com.m2049r.xmrwallet.model.** { *; }
+-keep class com.m2049r.xmrwallet.util.** { *; }
+
+# Keep native method names
+-keepclasseswithmembernames class * {
+    native <methods>;
+}

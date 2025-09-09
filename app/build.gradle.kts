@@ -14,6 +14,12 @@ android {
             excludes += setOf("META-INF/LICENSE.md", "META-INF/LICENSE-NOTICE.md", "META-INF/NOTICE.md")
         }
     }
+    
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
         
     defaultConfig {
         applicationId = "com.bitchat.droid"
@@ -25,6 +31,11 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+        
+        // NDK configuration for Monerujo native libraries
+        ndk {
+            abiFilters += setOf("arm64-v8a", "armeabi-v7a")
         }
     }
 
@@ -46,12 +57,13 @@ android {
         }
     }
     
-    // Updated packaging configuration
+    // Updated packaging configuration for Monerujo
     packaging {
         // For .so files (native libraries)
         jniLibs {
             pickFirsts += "**/libc++_shared.so"
             pickFirsts += "**/libjsc.so"
+            pickFirsts += "**/libmonerujo.so"  // Add Monerujo library
         }
         // For other resources
         resources {
@@ -118,13 +130,14 @@ dependencies {
     // Bluetooth
     implementation(libs.nordic.ble)
     
-    // MoneroJ for Monero wallet functionality
-    //implementation("com.github.m2049r:xmrwallet:3.4.3")
-    implementation("io.github.woodser:monero-java:0.8.38") {
-        exclude(group = "javax.activation")
-        exclude(group = "java.desktop")
-    }
-
+    // REMOVED: Standard monero-java library
+    // implementation("io.github.woodser:monero-java:0.8.38")
+    
+    // ADDED: Monerujo dependencies
+    // Note: You'll need to include Monerujo source files in your project
+    // as they're not published as a standalone library
+    // The native libmonerujo.so should be placed in app/src/main/jniLibs/
+    
     // JSON processing (if not already included)
     implementation("org.json:json:20231013")
 
