@@ -1,6 +1,7 @@
 package com.bitchat.android.ui
 
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
@@ -905,7 +906,7 @@ class ChatViewModel(
     // MARK: - Emergency Clear
     
     fun panicClearAllData() {
-        Log.w(TAG, "🚨 PANIC MODE ACTIVATED - Clearing all sensitive data")
+        Log.w(TAG, "ðŸš¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
         
         // Clear all UI managers
         messageManager.clearAllMessages()
@@ -979,6 +980,10 @@ class ChatViewModel(
             TAG,
             "✅ Mesh service recreated. Old peerID: $oldPeerID, New peerID: ${meshService.myPeerID}"
         )
+        Log.w(TAG, "ðŸš¨ PANIC MODE COMPLETED - All sensitive data cleared")
+        
+        // Note: Mesh service restart is now handled by MainActivity
+        // This method now only clears data, not mesh service lifecycle
     }
     
     /**
@@ -989,9 +994,9 @@ class ChatViewModel(
             // Request mesh service to clear all its internal data
             meshService.clearAllInternalData()
             
-            Log.d(TAG, "✅ Cleared all mesh service data")
+            Log.d(TAG, "âœ… Cleared all mesh service data")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error clearing mesh service data: ${e.message}")
+            Log.e(TAG, "âŒ Error clearing mesh service data: ${e.message}")
         }
     }
     
@@ -1007,11 +1012,38 @@ class ChatViewModel(
             try {
                 val identityManager = SecureIdentityStateManager(getApplication())
                 identityManager.clearIdentityData()
-                // Also clear secure values used by FavoritesPersistenceService (favorites + peerID index)
-                try {
-                    identityManager.clearSecureValues("favorite_relationships", "favorite_peerid_index")
-                } catch (_: Exception) { }
-                Log.d(TAG, "✅ Cleared secure identity state and secure favorites store")
+        // Recreate mesh service with fresh identity
+        recreateMeshServiceAfterPanic()
+
+        Log.w(TAG, "🚨 PANIC MODE COMPLETED - New identity: ${meshService.myPeerID}")
+    }
+
+    /**
+     * Recreate the mesh service with a fresh identity after panic clear.
+     * This ensures the new cryptographic keys are used for a new peer ID.
+     */
+    private fun recreateMeshServiceAfterPanic() {
+        val oldPeerID = meshService.myPeerID
+
+        // Clear the holder so getOrCreate() returns a fresh instance
+        MeshServiceHolder.clear()
+
+        // Create fresh mesh service with new identity (keys were regenerated in clearAllCryptographicData)
+        val freshMeshService = MeshServiceHolder.getOrCreate(getApplication())
+
+        // Replace our reference and set up the new service
+        meshService = freshMeshService
+        meshService.delegate = this
+
+        // Restart mesh operations with new identity
+        meshService.startServices()
+        meshService.sendBroadcastAnnounce()
+
+        Log.d(
+            TAG,
+            "✅ Mesh service recreated. Old peerID: $oldPeerID, New peerID: ${meshService.myPeerID}"
+        )
+                Log.d(TAG, "âœ… Cleared secure identity state")
             } catch (e: Exception) {
                 Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
             }
@@ -1022,9 +1054,9 @@ class ChatViewModel(
                 Log.d(TAG, "✅ Cleared FavoritesPersistenceService relationships")
             } catch (_: Exception) { }
             
-            Log.d(TAG, "✅ Cleared all cryptographic data")
+            Log.d(TAG, "âœ… Cleared all cryptographic data")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error clearing cryptographic data: ${e.message}")
+            Log.e(TAG, "âŒ Error clearing cryptographic data: ${e.message}")
         }
     }
 
@@ -1132,8 +1164,3 @@ class ChatViewModel(
     /**
      * Get consistent color for a Nostr pubkey (iOS-compatible)
      */
-    fun colorForNostrPubkey(pubkeyHex: String, isDark: Boolean): androidx.compose.ui.graphics.Color {
-        return geohashViewModel.colorForNostrPubkey(pubkeyHex, isDark)
-}
-
-}

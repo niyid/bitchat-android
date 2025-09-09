@@ -34,14 +34,9 @@ import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.ui.media.FullScreenImageViewer
 import com.bitchat.android.monero.wallet.MoneroWalletManager
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.math.BigInteger
-
-// Data classes for command and mention suggestions
-data class CommandSuggestion(
-    val command: String,
-    val description: String,
-    val usage: String = ""
-)
 
 /**
  * Main ChatScreen - REFACTORED to use component-based architecture with Monero integration
@@ -149,10 +144,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     viewModel.addSystemMessage("❌ Transaction failed: $txId - $error")
                 }
 
-                override fun onOutputReceived(amount: BigInteger, txId: String, confirmed: Boolean) {
+                override fun onOutputReceived(amount: BigInteger, txHash: String, isConfirmed: Boolean) {
                     val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
-                    val status = if (confirmed) "confirmed" else "pending"
-                    viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txId")
+                    val status = if (isConfirmed) "confirmed" else "pending"
+                    viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                 }
             })
 
@@ -168,7 +163,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
                 override fun onAddressShared(address: String, fromUser: String) {
                     peerMoneroAddresses = peerMoneroAddresses + (fromUser to address)
-                    viewModel.addSystemMessage("📍 $fromUser shared Monero address")
+                    viewModel.addSystemMessage("🔑 $fromUser shared Monero address")
                 }
 
                 override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
@@ -248,8 +243,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 meshService = viewModel.meshService,
                 modifier = Modifier.weight(1f),
                 forceScrollToBottom = forceScrollToBottom,
-                onScrolledUpChanged = { isUp -> isScrolledUp = isUp },
-                onNicknameClick = { fullSenderName ->
+                onScrolledUpChanged = { isUp: Boolean -> isScrolledUp = isUp },
+                onNicknameClick = { fullSenderName: String ->
                     // Single click - mention user in text input
                     val currentText = messageText.text
                     
@@ -258,7 +253,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     
                     // Check if we're in a geohash channel to include hash suffix
                     val selectedLocationChannel = viewModel.selectedLocationChannel.value
-                    val mentionText = if (selectedLocationChannel is com.bitchat.android.geohash.ChannelID.Location && hashSuffix.isNotEmpty()) {
+                    val mentionText = if (selectedLocationChannel != null && hashSuffix.isNotEmpty()) {
                         "@$baseName$hashSuffix"
                     } else {
                         "@$baseName"
@@ -275,7 +270,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         selection = TextRange(newText.length)
                     )
                 },
-                onMessageLongPress = { message ->
+                onMessageLongPress = { message: BitchatMessage ->
                     val (baseName, _) = splitSuffix(message.sender)
                     selectedUserForSheet = baseName
                     selectedMessageForSheet = message
@@ -563,6 +558,76 @@ fun splitSuffix(fullSenderName: String): Pair<String, String> {
 
 @Composable
 fun ChatInputSection(
+@Composable
+private fun MessageItem(
+    message: BitchatMessage,
+    currentUserNickname: String,
+    onNicknameClick: (String) -> Unit,
+    onMessageLongPress: (BitchatMessage) -> Unit
+) {
+    val isCurrentUser = message.sender == currentUserNickname
+    val colorScheme = MaterialTheme.colorScheme
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { onNicknameClick(message.sender) },
+                onLongClick = { onMessageLongPress(message) }
+            ),
+        horizontalArrangement = if (isCurrentUser) Arrangement.End else Arrangement.Start
+    ) {
+        Column(
+            modifier = Modifier.widthIn(max = 280.dp)
+        ) {
+            if (!isCurrentUser) {
+                Text(
+                    text = message.sender,
+                    fontSize = 12.sp,
+                    color = colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 2.dp)
+                )
+            }
+            
+            Surface(
+                shape = RoundedCornerShape(
+                    topStart = if (isCurrentUser) 16.dp else 4.dp,
+                    topEnd = if (isCurrentUser) 4.dp else 16.dp,
+                    bottomStart = 16.dp,
+                    bottomEnd = 16.dp
+                ),
+                color = if (isCurrentUser) colorScheme.primary else colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Text(
+                        text = message.content,
+                        color = if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                    
+                    Text(
+                        text = formatTimestamp(message.timestamp?.time ?: 0L),
+                        fontSize = 10.sp,
+                        color = (if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatTimestamp(timestamp: Long): String {
+    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+    return sdf.format(Date(timestamp))
+}
+
+@Composable
+private fun ChatInputSection(
     messageText: TextFieldValue,
     onMessageTextChange: (TextFieldValue) -> Unit,
     onSend: () -> Unit,
@@ -736,6 +801,7 @@ private fun MoneroWalletStatusBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            // Status message
             Text(
                 text = walletStatusMessage,
                 fontSize = 11.sp,
@@ -748,6 +814,7 @@ private fun MoneroWalletStatusBar(
                 modifier = Modifier.weight(1f)
             )
 
+            // Balance (only show when wallet is ready)
             if (isWalletReady && !isSyncing) {
                 Text(
                     text = "Balance: $currentBalance XMR",
@@ -757,6 +824,7 @@ private fun MoneroWalletStatusBar(
                 )
             }
 
+            // Sync progress (only show when syncing)
             if (isSyncing) {
                 Text(
                     text = "$syncProgress%",
@@ -878,6 +946,133 @@ private fun CommandSuggestionsBox(
                 shape = RoundedCornerShape(20.dp),
                 color = MaterialTheme.colorScheme.primaryContainer,
                 modifier = Modifier.animateItemPlacement()
+private fun SidebarChannelItem(
+    name: String,
+    isSelected: Boolean,
+    hasUnread: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Tag,
+                contentDescription = null,
+                tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer 
+                      else MaterialTheme.colorScheme.onSurface
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Text(
+                text = name,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer 
+                       else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier.weight(1f)
+            )
+            
+            if (hasUnread) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            Color(0xFF00C851),
+                            CircleShape
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SidebarPeerItem(
+    name: String,
+    isSelected: Boolean,
+    hasUnread: Boolean,
+    isOnline: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer 
+                          else MaterialTheme.colorScheme.onSurface
+                )
+                
+                // Online indicator
+                if (isOnline) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(Color(0xFF00C851), CircleShape)
+                            .align(Alignment.BottomEnd)
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Text(
+                text = name,
+                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer 
+                       else MaterialTheme.colorScheme.onSurface,
+                fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            if (hasUnread) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(
+                            Color(0xFF00C851),
+                            CircleShape
+                        )
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AboutSheet(
+    isPresented: Boolean,
+    onDismiss: () -> Unit
+) {
+    if (isPresented) {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
@@ -898,6 +1093,9 @@ private fun CommandSuggestionsBox(
                         )
                     }
                 }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -927,6 +1125,45 @@ private fun MentionSuggestionsBox(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
+            
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = "Join",
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun UserActionItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = Color.Transparent,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface
+            )
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }
@@ -1051,3 +1288,21 @@ private fun ChatDialogs(
         )
     }
 }
+    ChatUserSheet(
+        isPresented = showUserSheet,
+        onDismiss = onUserSheetDismiss,
+        targetNickname = selectedUserForSheet,
+        selectedMessage = selectedMessageForSheet,
+        viewModel = viewModel
+    )
+}
+
+// Additional data classes and extensions for the ChatViewModel integration
+
+// Location channel data class
+data class LocationChannel(
+    val name: String,
+    val distance: String,
+    val memberCount: Int,
+    val geohash: String
+)

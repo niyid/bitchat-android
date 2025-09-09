@@ -52,13 +52,13 @@ public class MoneroWalletManager {
         void onWalletInitialized(boolean success, String message);
         void onBalanceUpdated(BigInteger balance, BigInteger unlockedBalance);
         void onSyncProgress(long height, long startHeight, long endHeight, double percentDone);
-        void onOutputReceived(BigInteger amount, String txHash, boolean isConfirmed);
     }
     
     public interface TransactionListener {
         void onTransactionCreated(String txId, BigInteger amount);
         void onTransactionConfirmed(String txId);
         void onTransactionFailed(String txId, String error);
+        void onOutputReceived(BigInteger amount, String txHash, boolean isConfirmed);
     }
     
     private MoneroWalletManager(Context context) {
@@ -223,7 +223,7 @@ public class MoneroWalletManager {
                 Boolean isConfirmed = output.getTx().isConfirmed();
                 
                 if (statusListener != null) {
-                    mainHandler.post(() -> statusListener.onOutputReceived(amount, txHash, isConfirmed));
+                    mainHandler.post(() -> transactionListener.onOutputReceived(amount, txHash, isConfirmed));
                 }
                 
                 // Update balance when output is received
