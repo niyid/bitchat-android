@@ -16,3 +16,4 @@
 -keep class com.bitchat.android.favorites.** { *; }
 -keep class com.bitchat.android.nostr.** { *; }
 -keep class com.bitchat.android.identity.** { *; }
+-dontwarn org.slf4j.impl.StaticLoggerBinder
