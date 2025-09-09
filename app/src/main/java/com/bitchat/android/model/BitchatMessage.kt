@@ -59,6 +59,7 @@ data class BitchatMessage(
     val channel: String? = null,
     val encryptedContent: ByteArray? = null,
     val isEncrypted: Boolean = false,
+    val isSystemMessage: Boolean = false,
     val deliveryStatus: DeliveryStatus? = null
 ) : Parcelable {
 

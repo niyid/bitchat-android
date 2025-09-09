@@ -551,7 +551,7 @@ class ChatViewModel(
     // MARK: - Emergency Clear
     
     fun panicClearAllData() {
-        Log.w(TAG, "🚨 PANIC MODE ACTIVATED - Clearing all sensitive data")
+        Log.w(TAG, "ðŸš¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
         
         // Clear all UI managers
         messageManager.clearAllMessages()
@@ -576,7 +576,7 @@ class ChatViewModel(
         state.setNickname(newNickname)
         dataManager.saveNickname(newNickname)
         
-        Log.w(TAG, "🚨 PANIC MODE COMPLETED - All sensitive data cleared")
+        Log.w(TAG, "ðŸš¨ PANIC MODE COMPLETED - All sensitive data cleared")
         
         // Note: Mesh service restart is now handled by MainActivity
         // This method now only clears data, not mesh service lifecycle
@@ -590,9 +590,9 @@ class ChatViewModel(
             // Request mesh service to clear all its internal data
             meshService.clearAllInternalData()
             
-            Log.d(TAG, "✅ Cleared all mesh service data")
+            Log.d(TAG, "âœ… Cleared all mesh service data")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error clearing mesh service data: ${e.message}")
+            Log.e(TAG, "âŒ Error clearing mesh service data: ${e.message}")
         }
     }
     
@@ -608,14 +608,14 @@ class ChatViewModel(
             try {
                 val identityManager = com.bitchat.android.identity.SecureIdentityStateManager(getApplication())
                 identityManager.clearIdentityData()
-                Log.d(TAG, "✅ Cleared secure identity state")
+                Log.d(TAG, "âœ… Cleared secure identity state")
             } catch (e: Exception) {
                 Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
             }
             
-            Log.d(TAG, "✅ Cleared all cryptographic data")
+            Log.d(TAG, "âœ… Cleared all cryptographic data")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error clearing cryptographic data: ${e.message}")
+            Log.e(TAG, "âŒ Error clearing cryptographic data: ${e.message}")
         }
     }
     
@@ -771,6 +771,236 @@ class ChatViewModel(
     fun colorForNostrPubkey(pubkeyHex: String, isDark: Boolean): androidx.compose.ui.graphics.Color {
         return nostrGeohashService.colorForNostrPubkey(pubkeyHex, isDark)
     }
+    // Transaction tracking map
+    private val transactionMessages = mutableMapOf<String, BitchatMessage>()
     
-
+    /**
+     * Add system message (for Monero transactions, etc.)
+     * System messages are local notifications that don't leave the device
+     */
+    fun addSystemMessage(message: String) {
+        val systemMessage = BitchatMessage(
+            id = "system_${System.currentTimeMillis()}",
+            sender = "System",
+            content = message,
+            timestamp = Date(),
+            isRelay = false,
+            isSystemMessage = true,
+            senderPeerID = "system"
+        )
+        
+        Log.d(TAG, "Adding system message: $message")
+        
+        // Add to appropriate message list based on current context
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        val selectedLocationChannel = state.selectedLocationChannel.value
+        
+        when {
+            selectedPeer != null -> {
+                // Add to private chat context
+                addSystemMessageToPrivateChat(selectedPeer, systemMessage)
+            }
+            selectedLocationChannel is com.bitchat.android.geohash.ChannelID.Location -> {
+                // Add to main chat for location channels (system messages don't go to geohash)
+                messageManager.addMessage(systemMessage)
+            }
+            currentChannelValue != null -> {
+                // Add to current channel
+                addSystemMessageToChannel(currentChannelValue, systemMessage)
+            }
+            else -> {
+                // Add to main chat
+                messageManager.addMessage(systemMessage)
+            }
+        }
+    }
+    
+    /**
+     * Add system message to private chat
+     */
+    private fun addSystemMessageToPrivateChat(peerID: String, systemMessage: BitchatMessage) {
+        try {
+            val currentChats = state.getPrivateChatsValue().toMutableMap()
+            val peerMessages = currentChats[peerID]?.toMutableList() ?: mutableListOf()
+            peerMessages.add(systemMessage)
+            currentChats[peerID] = peerMessages
+            state.setPrivateChats(currentChats)
+            Log.d(TAG, "Added system message to private chat with $peerID")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add system message to private chat: ${e.message}")
+            // Fallback to main chat
+            messageManager.addMessage(systemMessage)
+        }
+    }
+    
+    /**
+     * Add system message to channel
+     */
+    private fun addSystemMessageToChannel(channel: String, systemMessage: BitchatMessage) {
+        try {
+            // Use channel manager to add message to channel
+            channelManager.addChannelMessage(channel, systemMessage, "system")
+            Log.d(TAG, "Added system message to channel $channel")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add system message to channel: ${e.message}")
+            // Fallback to main chat
+            messageManager.addMessage(systemMessage)
+        }
+    }
+        
+    /**
+     * Update transaction status and modify existing transaction message if possible
+     */
+    fun updateTransactionStatus(txId: String, status: String) {
+        Log.d(TAG, "Updating transaction $txId status to: $status")
+        
+        // Try to find and update existing transaction message
+        val existingMessage = transactionMessages[txId]
+        if (existingMessage != null) {
+            updateExistingTransactionMessage(existingMessage, txId, status)
+        } else {
+            // Create new status message
+            val statusMessage = when (status.lowercase()) {
+                "confirmed" -> "Transaction $txId confirmed"
+                "failed" -> "Transaction $txId failed"
+                "pending" -> "Transaction $txId is pending"
+                "cancelled" -> "Transaction $txId was cancelled"
+                else -> "Transaction $txId status: $status"
+            }
+            addSystemMessage(statusMessage)
+        }
+    }
+    
+    /**
+     * Update existing transaction message content
+     */
+    private fun updateExistingTransactionMessage(message: BitchatMessage, txId: String, status: String) {
+        try {
+            val statusEmoji = when (status.lowercase()) {
+                "confirmed" -> "✅"
+                "failed" -> "❌"
+                "pending" -> "⏳"
+                "cancelled" -> "🚫"
+                else -> "ℹ️"
+            }
+            
+            // Create updated message content
+            val originalContent = message.content.substringBefore(" (")
+            val updatedContent = "$originalContent ($statusEmoji $status)"
+            
+            // Create new message with updated content
+            val updatedMessage = message.copy(
+                content = updatedContent,
+                timestamp = Date()
+            )
+            
+            // Replace in appropriate message list
+            replaceMessageInCurrentContext(message, updatedMessage)
+            
+            // Update tracking map
+            transactionMessages[txId] = updatedMessage
+            
+            Log.d(TAG, "Updated transaction message for $txId: $updatedContent")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update existing transaction message: ${e.message}")
+            // Fallback to adding new status message
+            addSystemMessage("Transaction $txId status: $status")
+        }
+    }
+    
+    /**
+     * Replace a message in the current context (private chat, channel, or main)
+     */
+    private fun replaceMessageInCurrentContext(oldMessage: BitchatMessage, newMessage: BitchatMessage) {
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        
+        when {
+            selectedPeer != null -> {
+                // Replace in private chat
+                val currentChats = state.getPrivateChatsValue().toMutableMap()
+                val peerMessages = currentChats[selectedPeer]?.toMutableList() ?: return
+                val index = peerMessages.indexOfFirst { it.id == oldMessage.id }
+                if (index >= 0) {
+                    peerMessages[index] = newMessage
+                    currentChats[selectedPeer] = peerMessages
+                    state.setPrivateChats(currentChats)
+                }
+            }
+            currentChannelValue != null -> {
+                // Replace in channel - this would need channel manager support
+                // For now, just add new message
+                addSystemMessage(newMessage.content)
+            }
+            else -> {
+                // Replace in main chat
+                val currentMessages = state.getMessagesValue().toMutableList()
+                val index = currentMessages.indexOfFirst { it.id == oldMessage.id }
+                if (index >= 0) {
+                    currentMessages[index] = newMessage
+                    state.setMessages(currentMessages)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Track a transaction message for later status updates
+     */
+    fun trackTransactionMessage(txId: String, message: BitchatMessage) {
+        transactionMessages[txId] = message
+        Log.d(TAG, "Tracking transaction message for $txId")
+    }
+    
+    /**
+     * Add Monero transaction message with tracking
+     */
+    fun addMoneroTransactionMessage(txId: String, amount: String, recipientAddress: String) {
+        val content = "Sending $amount XMR... (⏳ pending)"
+        val transactionMessage = BitchatMessage(
+            id = "tx_$txId",
+            sender = "System",
+            content = content,
+            timestamp = Date(),
+            isRelay = false,
+            isSystemMessage = true,
+            senderPeerID = "system"
+        )
+        
+        // Track for updates
+        transactionMessages[txId] = transactionMessage
+        
+        // Add to current context
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        
+        when {
+            selectedPeer != null -> {
+                addSystemMessageToPrivateChat(selectedPeer, transactionMessage)
+            }
+            currentChannelValue != null -> {
+                addSystemMessageToChannel(currentChannelValue, transactionMessage)
+            }
+            else -> {
+                messageManager.addMessage(transactionMessage)
+            }
+        }
+        
+        Log.d(TAG, "Added Monero transaction message for $txId: $amount XMR")
+    }
+    
+    /**
+     * Copy message to clipboard
+     */
+    fun copyMessageToClipboard(content: String) {
+        try {
+            val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Message", content)
+            clipboard.setPrimaryClip(clip)
+            addSystemMessage("Message copied to clipboard")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy to clipboard: ${e.message}")
+        }
+    }    
 }

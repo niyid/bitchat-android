@@ -39,17 +39,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.monero.wallet.MoneroWalletManager
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.math.BigInteger
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.collections.HashMap
-
-// Data classes for command and mention suggestions
-data class CommandSuggestion(
-    val command: String,
-    val description: String,
-    val usage: String = ""
-)
 
 /**
  * Main ChatScreen - REFACTORED to use component-based architecture with Monero integration
@@ -150,10 +145,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     viewModel.addSystemMessage("❌ Transaction failed: $txId - $error")
                 }
 
-                override fun onOutputReceived(amount: BigInteger, txId: String, confirmed: Boolean) {
+                override fun onOutputReceived(amount: BigInteger, txHash: String, isConfirmed: Boolean) {
                     val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
-                    val status = if (confirmed) "confirmed" else "pending"
-                    viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txId")
+                    val status = if (isConfirmed) "confirmed" else "pending"
+                    viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                 }
             })
 
@@ -169,7 +164,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
                 override fun onAddressShared(address: String, fromUser: String) {
                     peerMoneroAddresses = peerMoneroAddresses + (fromUser to address)
-                    viewModel.addSystemMessage("📍 $fromUser shared Monero address")
+                    viewModel.addSystemMessage("🔑 $fromUser shared Monero address")
                 }
 
                 override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
@@ -233,8 +228,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 meshService = viewModel.meshService,
                 modifier = Modifier.weight(1f),
                 forceScrollToBottom = forceScrollToBottom,
-                onScrolledUpChanged = { isUp -> isScrolledUp = isUp },
-                onNicknameClick = { fullSenderName ->
+                onScrolledUpChanged = { isUp: Boolean -> isScrolledUp = isUp },
+                onNicknameClick = { fullSenderName: String ->
                     // Single click - mention user in text input
                     val currentText = messageText.text
                     
@@ -243,7 +238,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     
                     // Check if we're in a geohash channel to include hash suffix
                     val selectedLocationChannel = viewModel.selectedLocationChannel.value
-                    val mentionText = if (selectedLocationChannel is com.bitchat.android.geohash.ChannelID.Location && hashSuffix.isNotEmpty()) {
+                    val mentionText = if (selectedLocationChannel != null && hashSuffix.isNotEmpty()) {
                         "@$baseName$hashSuffix"
                     } else {
                         "@$baseName"
@@ -260,7 +255,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         selection = TextRange(newText.length)
                     )
                 },
-                onMessageLongPress = { message ->
+                onMessageLongPress = { message: BitchatMessage ->
                     val (baseName, _) = splitSuffix(message.sender)
                     selectedUserForSheet = baseName
                     selectedMessageForSheet = message
@@ -535,65 +530,6 @@ private fun handleMoneroSend(
     )
 }
 
-// Utility function to split nickname and hash suffix
-fun splitSuffix(fullSenderName: String): Pair<String, String> {
-    // Look for hash pattern at the end (e.g., "nickname-abc123")
-    val hashPattern = Regex("(.*)-([a-f0-9]{6})$")
-    val match = hashPattern.find(fullSenderName)
-    return if (match != null) {
-        Pair(match.groupValues[1], "-${match.groupValues[2]}")
-    } else {
-        Pair(fullSenderName, "")
-    }
-}
-
-@Composable
-private fun MessagesList(
-    messages: List<BitchatMessage>,
-    currentUserNickname: String,
-    meshService: Any?, // Replace with actual MeshService type
-    modifier: Modifier = Modifier,
-    forceScrollToBottom: Boolean,
-    onScrolledUpChanged: (Boolean) -> Unit,
-    onNicknameClick: (String) -> Unit,
-    onMessageLongPress: (BitchatMessage) -> Unit
-) {
-    val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    
-    // Handle forced scroll to bottom
-    LaunchedEffect(forceScrollToBottom) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
-        }
-    }
-    
-    // Monitor scroll position
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
-        val isAtBottom = listState.firstVisibleItemIndex >= messages.size - 2
-        onScrolledUpChanged(!isAtBottom)
-    }
-    
-    LazyColumn(
-        state = listState,
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        items(
-            items = messages,
-            key = { message -> message.id ?: message.hashCode() }
-        ) { message ->
-            MessageItem(
-                message = message,
-                currentUserNickname = currentUserNickname,
-                onNicknameClick = onNicknameClick,
-                onMessageLongPress = onMessageLongPress
-            )
-        }
-    }
-}
-
 @Composable
 private fun MessageItem(
     message: BitchatMessage,
@@ -646,7 +582,7 @@ private fun MessageItem(
                     )
                     
                     Text(
-                        text = formatTimestamp(message.timestamp),
+                        text = formatTimestamp(message.timestamp?.time ?: 0L),
                         fontSize = 10.sp,
                         color = (if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
                         modifier = Modifier.padding(top = 4.dp)
@@ -660,75 +596,6 @@ private fun MessageItem(
 private fun formatTimestamp(timestamp: Long): String {
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
     return sdf.format(Date(timestamp))
-}
-
-@Composable
-private fun CommandSuggestionsBox(
-    suggestions: List<CommandSuggestion>,
-    onSuggestionClick: (CommandSuggestion) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyRow(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(suggestions) { suggestion ->
-            Surface(
-                onClick = { onSuggestionClick(suggestion) },
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.animateItemPlacement()
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = suggestion.command,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    if (suggestion.description.isNotEmpty()) {
-                        Text(
-                            text = suggestion.description,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MentionSuggestionsBox(
-    suggestions: List<String>,
-    onSuggestionClick: (String) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyRow(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(suggestions) { mention ->
-            Surface(
-                onClick = { onSuggestionClick(mention) },
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.animateItemPlacement()
-            ) {
-                Text(
-                    text = "@$mention",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -932,98 +799,6 @@ private fun ChatFloatingHeader(
 }
 
 @Composable
-private fun ChatHeaderContent(
-    selectedPrivatePeer: String?,
-    currentChannel: String?,
-    nickname: String,
-    viewModel: ChatViewModel,
-    onBackClick: () -> Unit,
-    onSidebarClick: () -> Unit,
-    onTripleClick: () -> Unit,
-    onShowAppInfo: () -> Unit,
-    onLocationChannelsClick: () -> Unit
-) {
-    var clickCount by remember { mutableStateOf(0) }
-    val clickTimeoutJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val scope = rememberCoroutineScope()
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Left side - Back button and title
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            // Back button (only show when in private chat or specific channel)
-            if (selectedPrivatePeer != null || currentChannel != null) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back to main chat"
-                    )
-                }
-            }
-
-            // Title with triple-click handler
-            Text(
-                text = when {
-                    selectedPrivatePeer != null -> "Chat with $selectedPrivatePeer"
-                    currentChannel != null -> "#$currentChannel"
-                    else -> "BitChat"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.clickable {
-                    clickCount++
-                    clickTimeoutJob?.cancel()
-                    
-                    if (clickCount >= 3) {
-                        onTripleClick()
-                        clickCount = 0
-                    } else {
-                        scope.launch {
-                            kotlinx.coroutines.delay(500)
-                            clickCount = 0
-                        }
-                    }
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        // Right side - Action buttons
-        Row {
-            // Location channels button
-            IconButton(onClick = onLocationChannelsClick) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = "Location channels"
-                )
-            }
-
-            // App info button
-            IconButton(onClick = onShowAppInfo) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "App info"
-                )
-            }
-
-            // Sidebar toggle
-            IconButton(onClick = onSidebarClick) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "Open sidebar"
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun MoneroWalletStatusBar(
     isWalletReady: Boolean,
     currentBalance: String,
@@ -1080,114 +855,6 @@ private fun MoneroWalletStatusBar(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun SidebarOverlay(
-    viewModel: ChatViewModel,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val connectedPeers by viewModel.connectedPeers.observeAsState(emptyList())
-    val joinedChannels by viewModel.joinedChannels.observeAsState(emptySet())
-    val privateChats by viewModel.privateChats.observeAsState(emptyMap())
-    val hasUnreadChannels by viewModel.unreadChannelMessages.observeAsState(emptyMap())
-    val hasUnreadPrivateMessages by viewModel.unreadPrivateMessages.observeAsState(emptySet())
-
-    Row(modifier = modifier) {
-        // Sidebar content
-        Surface(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(280.dp),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "Navigation",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-
-                // Channels section
-                Text(
-                    text = "Channels",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // Main channel
-                    item {
-                        SidebarChannelItem(
-                            name = "Main",
-                            isSelected = viewModel.currentChannel.value == null,
-                            hasUnread = false,
-                            onClick = {
-                                viewModel.switchToChannel(null)
-                                onDismiss()
-                            }
-                        )
-                    }
-
-                    // Joined channels
-                    items(joinedChannels.toList()) { channel ->
-                        SidebarChannelItem(
-                            name = channel,
-                            isSelected = viewModel.currentChannel.value == channel,
-                            hasUnread = hasUnreadChannels[channel]?.isNotEmpty() == true,
-                            onClick = {
-                                viewModel.switchToChannel(channel)
-                                onDismiss()
-                            }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Private chats section
-                Text(
-                    text = "Private Chats",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(privateChats.keys.toList()) { peer ->
-                        SidebarPeerItem(
-                            name = peer,
-                            isSelected = viewModel.selectedPrivateChatPeer.value == peer,
-                            hasUnread = hasUnreadPrivateMessages.contains(peer),
-                            isOnline = connectedPeers.contains(peer),
-                            onClick = {
-                                viewModel.startPrivateChat(peer)
-                                onDismiss()
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Transparent area for dismissing
-        Spacer(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable { onDismiss() }
-        )
     }
 }
 
@@ -1304,52 +971,6 @@ private fun SidebarPeerItem(
     }
 }
 
-@Composable
-private fun PasswordPromptDialog(
-    show: Boolean,
-    channelName: String?,
-    passwordInput: String,
-    onPasswordChange: (String) -> Unit,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    if (show && channelName != null) {
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = {
-                Text("Join Channel")
-            },
-            text = {
-                Column {
-                    Text("Enter password for channel: $channelName")
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = onPasswordChange,
-                        label = { Text("Password") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = onConfirm,
-                    enabled = passwordInput.isNotEmpty()
-                ) {
-                    Text("Join")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AboutSheet(
@@ -1407,59 +1028,6 @@ private fun AboutSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun LocationChannelsSheet(
-    isPresented: Boolean,
-    onDismiss: () -> Unit,
-    viewModel: ChatViewModel
-) {
-    val availableLocationChannels by viewModel.availableLocationChannels.observeAsState(emptyList())
-    
-    if (isPresented) {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            dragHandle = { BottomSheetDefaults.DragHandle() }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-            ) {
-                Text(
-                    text = "Location Channels",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                
-                Text(
-                    text = "Join channels based on your location:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(availableLocationChannels) { channel ->
-                        LocationChannelItem(
-                            channelName = channel.name,
-                            distance = channel.distance,
-                            memberCount = channel.memberCount,
-                            onClick = {
-                                viewModel.joinLocationChannel(channel)
-                                onDismiss()
-                            }
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-        }
-    }
-}
-
 @Composable
 private fun LocationChannelItem(
     channelName: String,
@@ -1505,76 +1073,6 @@ private fun LocationChannelItem(
                 contentDescription = "Join",
                 tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
             )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ChatUserSheet(
-    isPresented: Boolean,
-    onDismiss: () -> Unit,
-    targetNickname: String,
-    selectedMessage: BitchatMessage?,
-    viewModel: ChatViewModel
-) {
-    if (isPresented) {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            dragHandle = { BottomSheetDefaults.DragHandle() }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-            ) {
-                Text(
-                    text = "User: $targetNickname",
-                    style = MaterialTheme.typography.headlineSmall,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                
-                // User actions
-                UserActionItem(
-                    icon = Icons.Default.Message,
-                    title = "Send Private Message",
-                    onClick = {
-                        viewModel.startPrivateChat(targetNickname)
-                        onDismiss()
-                    }
-                )
-                
-                UserActionItem(
-                    icon = Icons.Default.Block,
-                    title = "Block User",
-                    onClick = {
-                        viewModel.blockUser(targetNickname)
-                        onDismiss()
-                    }
-                )
-                
-                if (selectedMessage != null) {
-                    UserActionItem(
-                        icon = Icons.Default.ContentCopy,
-                        title = "Copy Message",
-                        onClick = {
-                            viewModel.copyMessageToClipboard(selectedMessage.content)
-                            onDismiss()
-                        }
-                    )
-                    
-                    UserActionItem(
-                        icon = Icons.Default.Reply,
-                        title = "Reply to Message",
-                        onClick = {
-                            viewModel.replyToMessage(selectedMessage)
-                            onDismiss()
-                        }
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(24.dp))
-            }
         }
     }
 }
@@ -1672,252 +1170,3 @@ data class LocationChannel(
     val memberCount: Int,
     val geohash: String
 )
-
-// Extension functions for ChatViewModel (these would need to be implemented in the actual ChatViewModel)
-/*
-You'll need to add these methods to your ChatViewModel class:
-
-class ChatViewModel : ViewModel() {
-    // Existing properties...
-    
-    private val _availableLocationChannels = MutableLiveData<List<LocationChannel>>()
-    val availableLocationChannels: LiveData<List<LocationChannel>> = _availableLocationChannels
-    
-    private val _selectedLocationChannel = MutableLiveData<com.bitchat.android.geohash.ChannelID.Location?>()
-    val selectedLocationChannel: LiveData<com.bitchat.android.geohash.ChannelID.Location?> = _selectedLocationChannel
-    
-    // System messages for Monero transactions
-    fun addSystemMessage(message: String) {
-        val systemMessage = BitchatMessage(
-            id = System.currentTimeMillis().toString(),
-            content = message,
-            sender = "System",
-            timestamp = System.currentTimeMillis(),
-            isSystemMessage = true
-        )
-        
-        val currentMessages = _messages.value?.toMutableList() ?: mutableListOf()
-        currentMessages.add(systemMessage)
-        _messages.postValue(currentMessages)
-    }
-    
-    // Transaction status updates
-    fun updateTransactionStatus(txId: String, status: String) {
-        val currentMessages = _messages.value?.toMutableList() ?: mutableListOf()
-        val messageIndex = currentMessages.indexOfFirst { 
-            it.content.contains(txId) 
-        }
-        
-        if (messageIndex != -1) {
-            val message = currentMessages[messageIndex]
-            val updatedContent = when (status) {
-                "confirmed" -> message.content.replace("(pending)", "(confirmed ✅)")
-                "failed" -> message.content.replace("(pending)", "(failed ❌)")
-                else -> message.content
-            }
-            
-            currentMessages[messageIndex] = message.copy(content = updatedContent)
-            _messages.postValue(currentMessages)
-        }
-    }
-    
-    // Command suggestions
-    fun updateCommandSuggestions(text: String) {
-        if (text.startsWith("/")) {
-            val command = text.substring(1).lowercase()
-            val suggestions = availableCommands.filter { 
-                it.command.startsWith(command) 
-            }
-            _commandSuggestions.postValue(suggestions)
-            _showCommandSuggestions.postValue(suggestions.isNotEmpty())
-        } else {
-            _showCommandSuggestions.postValue(false)
-        }
-    }
-    
-    // Mention suggestions
-    fun updateMentionSuggestions(text: String) {
-        val words = text.split(" ")
-        val lastWord = words.lastOrNull() ?: ""
-        
-        if (lastWord.startsWith("@") && lastWord.length > 1) {
-            val mention = lastWord.substring(1).lowercase()
-            val suggestions = connectedPeers.value?.filter { 
-                it.lowercase().startsWith(mention) 
-            } ?: emptyList()
-            _mentionSuggestions.postValue(suggestions)
-            _showMentionSuggestions.postValue(suggestions.isNotEmpty())
-        } else {
-            _showMentionSuggestions.postValue(false)
-        }
-    }
-    
-    // Select command suggestion
-    fun selectCommandSuggestion(suggestion: CommandSuggestion): String {
-        _showCommandSuggestions.postValue(false)
-        return if (suggestion.usage.isNotEmpty()) {
-            suggestion.usage
-        } else {
-            "${suggestion.command} "
-        }
-    }
-    
-    // Select mention suggestion
-    fun selectMentionSuggestion(mention: String, currentText: String): String {
-        _showMentionSuggestions.postValue(false)
-        val words = currentText.split(" ").toMutableList()
-        if (words.isNotEmpty() && words.last().startsWith("@")) {
-            words[words.size - 1] = "@$mention"
-        }
-        return words.joinToString(" ") + " "
-    }
-    
-    // Location channels
-    fun joinLocationChannel(channel: LocationChannel) {
-        // Implementation for joining location-based channels
-        val channelId = "loc_${channel.geohash}"
-        joinChannel(channelId, "")
-        _selectedLocationChannel.postValue(
-            com.bitchat.android.geohash.ChannelID.Location(channel.geohash)
-        )
-    }
-    
-    // User actions
-    fun blockUser(nickname: String) {
-        // Implementation for blocking users
-        // Add to blocked users list, filter messages, etc.
-    }
-    
-    fun copyMessageToClipboard(content: String) {
-        // Implementation for copying message content to clipboard
-        // Use ClipboardManager
-    }
-    
-    fun replyToMessage(message: BitchatMessage) {
-        // Implementation for replying to a specific message
-        // Could set a reply context or prefix the input field
-    }
-    
-    fun startPrivateChat(nickname: String) {
-        _selectedPrivateChatPeer.postValue(nickname)
-        // Initialize private chat if needed
-        if (!_privateChats.value?.containsKey(nickname) == true) {
-            val currentChats = _privateChats.value?.toMutableMap() ?: mutableMapOf()
-            currentChats[nickname] = emptyList()
-            _privateChats.postValue(currentChats)
-        }
-    }
-    
-    fun endPrivateChat() {
-        _selectedPrivateChatPeer.postValue(null)
-    }
-    
-    fun switchToChannel(channelName: String?) {
-        _currentChannel.postValue(channelName)
-        // Clear unread indicators for this channel
-        if (channelName != null) {
-            val currentUnread = _unreadChannelMessages.value?.toMutableMap() ?: mutableMapOf()
-            currentUnread.remove(channelName)
-            _unreadChannelMessages.postValue(currentUnread)
-        }
-    }
-    
-    // Sidebar management
-    fun showSidebar() {
-        _showSidebar.postValue(true)
-    }
-    
-    fun hideSidebar() {
-        _showSidebar.postValue(false)
-    }
-    
-    // App info
-    fun showAppInfo() {
-        _showAppInfo.postValue(true)
-    }
-    
-    fun hideAppInfo() {
-        _showAppInfo.postValue(false)
-    }
-    
-    // Panic clear
-    fun panicClearAllData() {
-        // Implementation for emergency data clearing
-        // Clear all messages, reset wallet, disconnect from network
-        _messages.postValue(emptyList())
-        _privateChats.postValue(emptyMap())
-        _channelMessages.postValue(emptyMap())
-        _joinedChannels.postValue(emptySet())
-        // Additional cleanup...
-    }
-    
-    // Available commands for suggestions
-    private val availableCommands = listOf(
-        CommandSuggestion("/help", "Show available commands"),
-        CommandSuggestion("/join", "Join a channel", "/join <channel_name>"),
-        CommandSuggestion("/leave", "Leave current channel"),
-        CommandSuggestion("/nick", "Change nickname", "/nick <new_name>"),
-        CommandSuggestion("/clear", "Clear chat history"),
-        CommandSuggestion("/status", "Show connection status"),
-        CommandSuggestion("/peers", "List connected peers"),
-        CommandSuggestion("/channels", "List available channels"),
-        CommandSuggestion("/monero", "Show Monero wallet info"),
-        CommandSuggestion("/balance", "Show Monero balance"),
-        CommandSuggestion("/address", "Show Monero address"),
-        CommandSuggestion("/pay", "Send Monero payment", "/pay <amount> <address>"),
-        CommandSuggestion("/request", "Request Monero payment", "/request <amount> [reason]")
-    )
-}
-*/
-
-// Mesh Service interface (placeholder - implement according to your mesh networking library)
-interface MeshService {
-    fun sendMessage(message: String, recipient: String? = null, channel: String? = null)
-    fun getConnectedPeers(): List<String>
-    fun joinChannel(channelName: String, password: String? = null): Boolean
-    fun leaveChannel(channelName: String)
-    fun isConnected(): Boolean
-    fun startService()
-    fun stopService()
-}
-
-// Additional utility functions
-fun generateMessageId(): String {
-    return "${System.currentTimeMillis()}_${kotlin.random.Random.nextInt(1000, 9999)}"
-}
-
-fun isValidMoneroAddress(address: String): Boolean {
-    // Basic Monero address validation
-    return address.length == 95 && (address.startsWith("4") || address.startsWith("8"))
-}
-
-fun formatMoneroAmount(amount: String): String {
-    return try {
-        val amountDouble = amount.toDouble()
-        String.format("%.6f", amountDouble)
-    } catch (e: NumberFormatException) {
-        amount
-    }
-}
-
-// Error handling for Monero operations
-sealed class MoneroError {
-    object WalletNotInitialized : MoneroError()
-    object InsufficientBalance : MoneroError()
-    object InvalidAddress : MoneroError()
-    object InvalidAmount : MoneroError()
-    object NetworkError : MoneroError()
-    data class TransactionFailed(val message: String) : MoneroError()
-}
-
-// Extension functions for better error handling
-fun MoneroError.getMessage(): String {
-    return when (this) {
-        is MoneroError.WalletNotInitialized -> "Wallet not initialized"
-        is MoneroError.InsufficientBalance -> "Insufficient balance"
-        is MoneroError.InvalidAddress -> "Invalid Monero address"
-        is MoneroError.InvalidAmount -> "Invalid amount"
-        is MoneroError.NetworkError -> "Network error"
-        is MoneroError.TransactionFailed -> "Transaction failed: $message"
-    }
-}
