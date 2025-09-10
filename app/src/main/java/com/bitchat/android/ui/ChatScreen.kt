@@ -117,7 +117,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
                 }
 
-                override fun onSyncProgress(height: Long, targetHeight: Long, percentDone: Double) {
+                override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
                     isSyncing = percentDone < 1.0
                     syncProgress = (percentDone * 100).toInt()
                     
@@ -152,7 +152,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             })
 
-            initializeWallet(true)
+            initializeWallet(1)
         }
 
         moneroMessageHandler = MoneroMessageHandler().apply {
@@ -232,10 +232,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 onNicknameClick = { fullSenderName: String ->
                     // Single click - mention user in text input
                     val currentText = messageText.text
-                    
+
                     // Extract base nickname and hash suffix from full sender name
                     val (baseName, hashSuffix) = splitSuffix(fullSenderName)
-                    
+
                     // Check if we're in a geohash channel to include hash suffix
                     val selectedLocationChannel = viewModel.selectedLocationChannel.value
                     val mentionText = if (selectedLocationChannel != null && hashSuffix.isNotEmpty()) {
@@ -243,13 +243,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     } else {
                         "@$baseName"
                     }
-                    
+
                     val newText = when {
                         currentText.isEmpty() -> "$mentionText "
                         currentText.endsWith(" ") -> "$currentText$mentionText "
                         else -> "$currentText $mentionText "
                     }
-                    
+
                     messageText = TextFieldValue(
                         text = newText,
                         selection = TextRange(newText.length)
@@ -260,7 +260,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     selectedUserForSheet = baseName
                     selectedMessageForSheet = message
                     showUserSheet = true
-                }
+                },
+                moneroWalletManager = moneroWalletManager,   
+                viewModel = viewModel                        
             )
             
             // Input area - stays at bottom with Monero integration
@@ -483,113 +485,42 @@ private fun handleMoneroSend(
         return
     }
 
-    try {
-        val amountValue = amount.toDouble()
-        if (amountValue <= 0) {
-            onError("Please enter a valid amount")
-            return
-        }
-    } catch (e: NumberFormatException) {
-        onError("Please enter a valid amount")
-        return
-    }
-
-    // Add sending message
-    viewModel.sendMessage("Sending $amount XMR...")
-
-    // Get Monero address for the peer
     val peerMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
     if (peerMoneroAddress == null) {
         onError("Peer Monero address not found")
         return
     }
 
-    moneroWalletManager.sendMonero(
-        peerMoneroAddress, 
-        amount?.toLongOrNull() ?: 0L,
-        object : MoneroWalletManager.SendCallback {
-            override fun onSuccess(txId: String, atomicAmount: Long) {
-                val successMessage = "💰 Sent $amount XMR (pending)"
-                // Update last message or add new one
-                viewModel.sendMessage(successMessage)
+    try {
+        // Directly pass amount (as String) to createTxBlob
+        moneroWalletManager.createTxBlob(
+            peerMoneroAddress,
+            amount,
+            object : MoneroWalletManager.TxBlobCallback {
+                override fun onSuccess(txId: String, base64Blob: String) {
+                    if (base64Blob.isEmpty()) {
+                        onError("Failed to create transaction blob")
+                        return
+                    }
 
-                val paymentMessage = MoneroMessageHandler.createPaymentMessage(
-                    amount, txId, peerMoneroAddress
-                )
-                viewModel.sendMessage(paymentMessage)
-                
-                onSuccess()
-            }
+                    // base64Blob is already Base64 encoded from wallet side
+                    val paymentMessage = "[XMR_TX_BLOB]$base64Blob"
+                    viewModel.sendMessage(paymentMessage)
 
-            override fun onError(error: String) {
-                val errorMessage = "❌ Failed to send $amount XMR"
-                viewModel.sendMessage(errorMessage)
-                onError("Payment failed: $error")
-            }
-        }
-    )
-}
-
-@Composable
-private fun MessageItem(
-    message: BitchatMessage,
-    currentUserNickname: String,
-    onNicknameClick: (String) -> Unit,
-    onMessageLongPress: (BitchatMessage) -> Unit
-) {
-    val isCurrentUser = message.sender == currentUserNickname
-    val colorScheme = MaterialTheme.colorScheme
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = { onNicknameClick(message.sender) },
-                onLongClick = { onMessageLongPress(message) }
-            ),
-        horizontalArrangement = if (isCurrentUser) Arrangement.End else Arrangement.Start
-    ) {
-        Column(
-            modifier = Modifier.widthIn(max = 280.dp)
-        ) {
-            if (!isCurrentUser) {
-                Text(
-                    text = message.sender,
-                    fontSize = 12.sp,
-                    color = colorScheme.primary,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 2.dp)
-                )
-            }
-            
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = if (isCurrentUser) 16.dp else 4.dp,
-                    topEnd = if (isCurrentUser) 4.dp else 16.dp,
-                    bottomStart = 16.dp,
-                    bottomEnd = 16.dp
-                ),
-                color = if (isCurrentUser) colorScheme.primary else colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp)
-                ) {
-                    Text(
-                        text = message.content,
-                        color = if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
+                    viewModel.addSystemMessage(
+                        "💰 Created tx for $amount XMR and sent to peer (pending broadcast) — txId: $txId"
                     )
-                    
-                    Text(
-                        text = formatTimestamp(message.timestamp?.time ?: 0L),
-                        fontSize = 10.sp,
-                        color = (if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
+
+                    onSuccess()
+                }
+
+                override fun onError(error: String) {
+                    onError("Payment failed: $error")
                 }
             }
-        }
+        )
+    } catch (e: Exception) {
+        onError("Payment failed: ${e.message}")
     }
 }
 
