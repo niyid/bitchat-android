@@ -1,6 +1,7 @@
 package com.bitchat.android.ui
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -8,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
@@ -17,26 +19,32 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bitchat.android.model.BitchatMessage
-import com.bitchat.android.ui.media.FullScreenImageViewer
-import com.bitchat.android.monero.wallet.MoneroWalletManager
+import com.bitchat.android.monero.wallet.WalletSuite
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.math.BigInteger
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.collections.HashMap
 
 /**
  * Main ChatScreen - REFACTORED to use component-based architecture with Monero integration
@@ -45,28 +53,25 @@ import java.math.BigInteger
 fun ChatScreen(viewModel: ChatViewModel) {
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
-    val messages by viewModel.messages.collectAsStateWithLifecycle()
-    val connectedPeers by viewModel.connectedPeers.collectAsStateWithLifecycle()
-    val nickname by viewModel.nickname.collectAsStateWithLifecycle()
-    val selectedPrivatePeer by viewModel.selectedPrivateChatPeer.collectAsStateWithLifecycle()
-    val currentChannel by viewModel.currentChannel.collectAsStateWithLifecycle()
-    val joinedChannels by viewModel.joinedChannels.collectAsStateWithLifecycle()
-    val hasUnreadChannels by viewModel.unreadChannelMessages.collectAsStateWithLifecycle()
-    val hasUnreadPrivateMessages by viewModel.unreadPrivateMessages.collectAsStateWithLifecycle()
-    val privateChats by viewModel.privateChats.collectAsStateWithLifecycle()
-    val channelMessages by viewModel.channelMessages.collectAsStateWithLifecycle()
-    val showCommandSuggestions by viewModel.showCommandSuggestions.collectAsStateWithLifecycle()
-    val commandSuggestions by viewModel.commandSuggestions.collectAsStateWithLifecycle()
-    val showMentionSuggestions by viewModel.showMentionSuggestions.collectAsStateWithLifecycle()
-    val mentionSuggestions by viewModel.mentionSuggestions.collectAsStateWithLifecycle()
-    val showAppInfo by viewModel.showAppInfo.collectAsStateWithLifecycle()
-    val showMeshPeerListSheet by viewModel.showMeshPeerList.collectAsStateWithLifecycle()
-    val privateChatSheetPeer by viewModel.privateChatSheetPeer.collectAsStateWithLifecycle()
-    val showVerificationSheet by viewModel.showVerificationSheet.collectAsStateWithLifecycle()
-    val showSecurityVerificationSheet by viewModel.showSecurityVerificationSheet.collectAsStateWithLifecycle()
+    val messages by viewModel.messages.observeAsState(emptyList())
+    val connectedPeers by viewModel.connectedPeers.observeAsState(emptyList())
+    val nickname by viewModel.nickname.observeAsState("")
+    val selectedPrivatePeer by viewModel.selectedPrivateChatPeer.observeAsState()
+    val currentChannel by viewModel.currentChannel.observeAsState()
+    val joinedChannels by viewModel.joinedChannels.observeAsState(emptySet())
+    val hasUnreadChannels by viewModel.unreadChannelMessages.observeAsState(emptyMap())
+    val hasUnreadPrivateMessages by viewModel.unreadPrivateMessages.observeAsState(emptySet())
+    val privateChats by viewModel.privateChats.observeAsState(emptyMap())
+    val channelMessages by viewModel.channelMessages.observeAsState(emptyMap())
+    val showSidebar by viewModel.showSidebar.observeAsState(false)
+    val showCommandSuggestions by viewModel.showCommandSuggestions.observeAsState(false)
+    val commandSuggestions by viewModel.commandSuggestions.observeAsState(emptyList())
+    val showMentionSuggestions by viewModel.showMentionSuggestions.observeAsState(false)
+    val mentionSuggestions by viewModel.mentionSuggestions.observeAsState(emptyList())
+    val showAppInfo by viewModel.showAppInfo.observeAsState(false)
 
     // Monero-related state
-    var moneroWalletManager by remember { mutableStateOf<MoneroWalletManager?>(null) }
+    var walletSuite by remember { mutableStateOf<WalletSuite?>(null) }
     var moneroMessageHandler by remember { mutableStateOf<MoneroMessageHandler?>(null) }
     var isMoneroModeActive by remember { mutableStateOf(false) }
     var currentBalance by remember { mutableStateOf("0.000000") }
@@ -81,27 +86,23 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var showPasswordDialog by remember { mutableStateOf(false) }
     var passwordInput by remember { mutableStateOf("") }
     var showLocationChannelsSheet by remember { mutableStateOf(false) }
-    var showLocationNotesSheet by remember { mutableStateOf(false) }
     var showUserSheet by remember { mutableStateOf(false) }
     var selectedUserForSheet by remember { mutableStateOf("") }
     var selectedMessageForSheet by remember { mutableStateOf<BitchatMessage?>(null) }
-    var showFullScreenImageViewer by remember { mutableStateOf(false) }
-    var viewerImagePaths by remember { mutableStateOf(emptyList<String>()) }
-    var initialViewerIndex by remember { mutableStateOf(0) }
     var forceScrollToBottom by remember { mutableStateOf(false) }
     var isScrolledUp by remember { mutableStateOf(false) }
 
     // Initialize Monero components
     LaunchedEffect(Unit) {
-        moneroWalletManager = MoneroWalletManager.getInstance(context).apply {
-            setWalletStatusListener(object : MoneroWalletManager.WalletStatusListener {
+        walletSuite = WalletSuite.getInstance(context).apply {
+            setWalletStatusListener(object : WalletSuite.WalletStatusListener {
                 override fun onWalletInitialized(success: Boolean, message: String) {
                     isWalletReady = success
                     if (success) {
                         walletStatusMessage = "Wallet ready"
-                        getBalance(object : MoneroWalletManager.BalanceCallback {
+                        getBalance(object : WalletSuite.BalanceCallback {
                             override fun onSuccess(balance: Long, unlockedBalance: Long) {
-                                currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
+                                currentBalance = WalletSuite.convertAtomicToXmr(unlockedBalance)
                             }
                             override fun onError(error: String) {
                                 walletStatusMessage = "Balance error: $error"
@@ -113,7 +114,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
 
                 override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
-                    currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
+                    currentBalance = WalletSuite.convertAtomicToXmr(unlockedBalance)
                 }
 
                 override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
@@ -128,9 +129,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             })
 
-            setTransactionListener(object : MoneroWalletManager.TransactionListener {
+            setTransactionListener(object : WalletSuite.TransactionListener {
                 override fun onTransactionCreated(txId: String, amount: Long) {
-                    val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
                     viewModel.addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
                 }
 
@@ -145,7 +146,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
 
                 override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
-                    val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
                     val status = if (isConfirmed) "confirmed" else "pending"
                     viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                 }
@@ -184,30 +185,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
         showPasswordDialog = showPasswordPrompt
     }
 
-    val isConnected by viewModel.isConnected.collectAsStateWithLifecycle()
-    val passwordPromptChannel by viewModel.passwordPromptChannel.collectAsStateWithLifecycle()
+    val isConnected by viewModel.isConnected.observeAsState(false)
+    val passwordPromptChannel by viewModel.passwordPromptChannel.observeAsState(null)
 
-    // Get location channel info for timeline switching
-    val selectedLocationChannel by viewModel.selectedLocationChannel.collectAsStateWithLifecycle()
-
-    // Determine what messages to show based on current context (unified timelines)
+    // Determine what messages to show
     val displayMessages = when {
+        selectedPrivatePeer != null -> privateChats[selectedPrivatePeer] ?: emptyList()
         currentChannel != null -> channelMessages[currentChannel] ?: emptyList()
-        else -> {
-            val locationChannel = selectedLocationChannel
-            if (locationChannel is com.bitchat.android.geohash.ChannelID.Location) {
-                val geokey = "geo:${locationChannel.channel.geohash}"
-                channelMessages[geokey] ?: emptyList()
-            } else {
-                messages // Mesh timeline
-            }
-        }
-    }
-
-    // Determine whether to show media buttons (only hide in geohash location chats)
-    val showMediaButtons = when {
-        currentChannel != null -> true
-        else -> selectedLocationChannel !is com.bitchat.android.geohash.ChannelID.Location
+        else -> messages
     }
 
     // Check if current chat partner can receive Monero (for private chats)
@@ -276,26 +261,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     selectedMessageForSheet = message
                     showUserSheet = true
                 },
-                onCancelTransfer = { msg ->
-                    viewModel.cancelMediaSend(msg.id)
-                },
-                onImageClick = { currentPath, allImagePaths, initialIndex ->
-                    viewerImagePaths = allImagePaths
-                    initialViewerIndex = initialIndex
-                    showFullScreenImageViewer = true
-                }
-                moneroWalletManager = moneroWalletManager,   
+                walletSuite = walletSuite,   
                 viewModel = viewModel                        
             )
             
-            // Input area - stays at bottom with file share bridge and Monero integration
-            // Bridge file share from lower-level input to ViewModel
-            androidx.compose.runtime.LaunchedEffect(Unit) {
-                com.bitchat.android.ui.events.FileShareDispatcher.setHandler { peer, channel, path ->
-                    viewModel.sendFileNote(peer, channel, path)
-                }
-            }
-
+            // Input area - stays at bottom with Monero integration
             ChatInputSection(
                 messageText = messageText,
                 onMessageTextChange = { newText: TextFieldValue ->
@@ -309,7 +279,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             // Handle Monero send
                             handleMoneroSend(
                                 amount = messageText.text.trim(),
-                                moneroWalletManager = moneroWalletManager,
+                                walletSuite = walletSuite,
                                 selectedPrivatePeer = selectedPrivatePeer,
                                 canReceiveMonero = canReceiveMonero,
                                 peerMoneroAddresses = peerMoneroAddresses,
@@ -320,6 +290,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                     forceScrollToBottom = !forceScrollToBottom
                                 },
                                 onError = { error ->
+                                    // Handle error (show toast or error message)
                                     viewModel.addSystemMessage("❌ Payment error: $error")
                                 }
                             )
@@ -330,15 +301,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             forceScrollToBottom = !forceScrollToBottom
                         }
                     }
-                },
-                onSendVoiceNote = { peer, onionOrChannel, path ->
-                    viewModel.sendVoiceNote(peer, onionOrChannel, path)
-                },
-                onSendImageNote = { peer, onionOrChannel, path ->
-                    viewModel.sendImageNote(peer, onionOrChannel, path)
-                },
-                onSendFileNote = { peer, onionOrChannel, path ->
-                    viewModel.sendFileNote(peer, onionOrChannel, path)
                 },
                 showCommandSuggestions = showCommandSuggestions,
                 commandSuggestions = commandSuggestions,
@@ -358,11 +320,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         selection = TextRange(mentionText.length)
                     )
                 },
-                selectedPrivatePeer = null,
+                selectedPrivatePeer = selectedPrivatePeer,
                 currentChannel = currentChannel,
                 nickname = nickname,
                 colorScheme = colorScheme,
-                showMediaButtons = showMediaButtons,
                 // Monero-specific parameters
                 isMoneroModeActive = isMoneroModeActive,
                 onMoneroModeToggle = { 
@@ -378,16 +339,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
         // Floating header with Monero wallet info
         ChatFloatingHeader(
             headerHeight = headerHeight,
-            selectedPrivatePeer = null,
+            selectedPrivatePeer = selectedPrivatePeer,
             currentChannel = currentChannel,
             nickname = nickname,
             viewModel = viewModel,
             colorScheme = colorScheme,
-            onSidebarToggle = { viewModel.showMeshPeerList() },
+            onSidebarToggle = { viewModel.showSidebar() },
             onShowAppInfo = { viewModel.showAppInfo() },
             onPanicClear = { viewModel.panicClearAllData() },
             onLocationChannelsClick = { showLocationChannelsSheet = true },
-            onLocationNotesClick = { showLocationNotesSheet = true },
             // Monero wallet info
             isWalletReady = isWalletReady,
             currentBalance = currentBalance,
@@ -406,9 +366,28 @@ fun ChatScreen(viewModel: ChatViewModel) {
             color = colorScheme.outline.copy(alpha = 0.3f)
         )
 
+        val alpha by animateFloatAsState(
+            targetValue = if (showSidebar) 0.5f else 0f,
+            animationSpec = tween(
+                durationMillis = 300,
+                easing = EaseOutCubic
+            ), label = "overlayAlpha"
+        )
+
+        // Background overlay for sidebar
+        if (alpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = alpha))
+                    .clickable { viewModel.hideSidebar() }
+                    .zIndex(1f)
+            )
+        }
+
         // Scroll-to-bottom floating button
         AnimatedVisibility(
-            visible = isScrolledUp,
+            visible = isScrolledUp && !showSidebar,
             enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
             modifier = Modifier
@@ -428,21 +407,32 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 IconButton(onClick = { forceScrollToBottom = !forceScrollToBottom }) {
                     Icon(
                         imageVector = Icons.Filled.ArrowDownward,
-                        contentDescription = stringResource(com.bitchat.android.R.string.cd_scroll_to_bottom),
+                        contentDescription = "Scroll to bottom",
                         tint = Color(0xFF00C851)
                     )
                 }
             }
         }
-    }
 
-    // Full-screen image viewer - separate from other sheets to allow image browsing without navigation
-    if (showFullScreenImageViewer) {
-        FullScreenImageViewer(
-            imagePaths = viewerImagePaths,
-            initialIndex = initialViewerIndex,
-            onClose = { showFullScreenImageViewer = false }
-        )
+        // Sidebar
+        AnimatedVisibility(
+            visible = showSidebar,
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(300, easing = EaseOutCubic)
+            ) + fadeIn(animationSpec = tween(300)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(250, easing = EaseInCubic)
+            ) + fadeOut(animationSpec = tween(250)),
+            modifier = Modifier.zIndex(2f)
+        ) {
+            SidebarOverlay(
+                viewModel = viewModel,
+                onDismiss = { viewModel.hideSidebar() },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
     }
 
     // Dialogs and Sheets
@@ -468,8 +458,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
         onAppInfoDismiss = { viewModel.hideAppInfo() },
         showLocationChannelsSheet = showLocationChannelsSheet,
         onLocationChannelsSheetDismiss = { showLocationChannelsSheet = false },
-        showLocationNotesSheet = showLocationNotesSheet,
-        onLocationNotesSheetDismiss = { showLocationNotesSheet = false },
         showUserSheet = showUserSheet,
         onUserSheetDismiss = { 
             showUserSheet = false
@@ -477,20 +465,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
         },
         selectedUserForSheet = selectedUserForSheet,
         selectedMessageForSheet = selectedMessageForSheet,
-        viewModel = viewModel,
-        showVerificationSheet = showVerificationSheet,
-        onVerificationSheetDismiss = viewModel::hideVerificationSheet,
-        showSecurityVerificationSheet = showSecurityVerificationSheet,
-        onSecurityVerificationSheetDismiss = viewModel::hideSecurityVerificationSheet,
-        showMeshPeerListSheet = showMeshPeerListSheet,
-        onMeshPeerListDismiss = viewModel::hideMeshPeerList,
+        viewModel = viewModel
     )
 }
 
 // Monero send handler function
 private fun handleMoneroSend(
     amount: String,
-    moneroWalletManager: MoneroWalletManager?,
+    walletSuite: WalletSuite?,
     selectedPrivatePeer: String?,
     canReceiveMonero: Boolean,
     peerMoneroAddresses: Map<String, String>,
@@ -498,23 +480,10 @@ private fun handleMoneroSend(
     onSuccess: () -> Unit,
     onError: (String) -> Unit
 ) {
-    if (moneroWalletManager == null || selectedPrivatePeer == null || !canReceiveMonero) {
+    if (walletSuite == null || selectedPrivatePeer == null || !canReceiveMonero) {
         onError("Cannot send Monero: wallet not ready or peer cannot receive Monero")
         return
     }
-
-    try {
-        val amountValue = amount.toDouble()
-        if (amountValue <= 0) {
-            onError("Please enter a valid amount")
-            return
-        }
-    } catch (e: NumberFormatException) {
-        onError("Please enter a valid amount")
-        return
-    }
-
-    viewModel.sendMessage("Sending $amount XMR...")
 
     val peerMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
     if (peerMoneroAddress == null) {
@@ -522,19 +491,12 @@ private fun handleMoneroSend(
         return
     }
 
-    moneroWalletManager.sendMonero(
-        peerMoneroAddress, 
-        amount?.toLongOrNull() ?: 0L,
-        object : MoneroWalletManager.SendCallback {
-            override fun onSuccess(txId: String, atomicAmount: Long) {
-                val successMessage = "💰 Sent $amount XMR (pending)"
-                viewModel.sendMessage(successMessage)
     try {
         // Directly pass amount (as String) to createTxBlob
-        moneroWalletManager.createTxBlob(
+        walletSuite.createTxBlob(
             peerMoneroAddress,
             amount,
-            object : MoneroWalletManager.TxBlobCallback {
+            object : WalletSuite.TxBlobCallback {
                 override fun onSuccess(txId: String, base64Blob: String) {
                     if (base64Blob.isEmpty()) {
                         onError("Failed to create transaction blob")
@@ -545,84 +507,6 @@ private fun handleMoneroSend(
                     val paymentMessage = "[XMR_TX_BLOB]$base64Blob"
                     viewModel.sendMessage(paymentMessage)
 
-            override fun onError(error: String) {
-                val errorMessage = "❌ Failed to send $amount XMR"
-                viewModel.sendMessage(errorMessage)
-                onError("Payment failed: $error")
-            }
-        }
-    )
-}
-
-// Utility function to split nickname and hash suffix
-fun splitSuffix(fullSenderName: String): Pair<String, String> {
-    val hashPattern = Regex("(.*)-([a-f0-9]{6})$")
-    val match = hashPattern.find(fullSenderName)
-    return if (match != null) {
-        Pair(match.groupValues[1], "-${match.groupValues[2]}")
-    } else {
-        Pair(fullSenderName, "")
-    }
-}
-
-@Composable
-fun ChatInputSection(
-@Composable
-private fun MessageItem(
-    message: BitchatMessage,
-    currentUserNickname: String,
-    onNicknameClick: (String) -> Unit,
-    onMessageLongPress: (BitchatMessage) -> Unit
-) {
-    val isCurrentUser = message.sender == currentUserNickname
-    val colorScheme = MaterialTheme.colorScheme
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = { onNicknameClick(message.sender) },
-                onLongClick = { onMessageLongPress(message) }
-            ),
-        horizontalArrangement = if (isCurrentUser) Arrangement.End else Arrangement.Start
-    ) {
-        Column(
-            modifier = Modifier.widthIn(max = 280.dp)
-        ) {
-            if (!isCurrentUser) {
-                Text(
-                    text = message.sender,
-                    fontSize = 12.sp,
-                    color = colorScheme.primary,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 2.dp)
-                )
-            }
-            
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = if (isCurrentUser) 16.dp else 4.dp,
-                    topEnd = if (isCurrentUser) 4.dp else 16.dp,
-                    bottomStart = 16.dp,
-                    bottomEnd = 16.dp
-                ),
-                color = if (isCurrentUser) colorScheme.primary else colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp)
-                ) {
-                    Text(
-                        text = message.content,
-                        color = if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
-                    )
-                    
-                    Text(
-                        text = formatTimestamp(message.timestamp?.time ?: 0L),
-                        fontSize = 10.sp,
-                        color = (if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant).copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp)
                     viewModel.addSystemMessage(
                         "💰 Created tx for $amount XMR and sent to peer (pending broadcast) — txId: $txId"
                     )
@@ -650,9 +534,6 @@ private fun ChatInputSection(
     messageText: TextFieldValue,
     onMessageTextChange: (TextFieldValue) -> Unit,
     onSend: () -> Unit,
-    onSendVoiceNote: (String?, String?, String) -> Unit,
-    onSendImageNote: (String?, String?, String) -> Unit,
-    onSendFileNote: (String?, String?, String) -> Unit,
     showCommandSuggestions: Boolean,
     commandSuggestions: List<CommandSuggestion>,
     showMentionSuggestions: Boolean,
@@ -663,7 +544,6 @@ private fun ChatInputSection(
     currentChannel: String?,
     nickname: String,
     colorScheme: ColorScheme,
-    showMediaButtons: Boolean,
     // Monero parameters
     isMoneroModeActive: Boolean,
     onMoneroModeToggle: () -> Unit,
@@ -696,25 +576,86 @@ private fun ChatInputSection(
                 )
                 HorizontalDivider(color = colorScheme.outline.copy(alpha = 0.2f))
             }
-            
-            MessageInput(
-                value = messageText,
-                onValueChange = onMessageTextChange,
-                onSend = onSend,
-                onSendVoiceNote = onSendVoiceNote,
-                onSendImageNote = onSendImageNote,
-                onSendFileNote = onSendFileNote,
-                selectedPrivatePeer = selectedPrivatePeer,
-                currentChannel = currentChannel,
-                nickname = nickname,
-                showMediaButtons = showMediaButtons,
-                modifier = Modifier.fillMaxWidth(),
-                // Monero parameters
-                isMoneroModeActive = isMoneroModeActive,
-                onMoneroModeToggle = onMoneroModeToggle,
-                canReceiveMonero = canReceiveMonero,
-                isWalletReady = isWalletReady
-            )
+
+            // Enhanced message input with Monero toggle
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                // Message input field
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = onMessageTextChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { 
+                        Text(
+                            if (isMoneroModeActive) "Enter amount (XMR)" else "Type a message...",
+                            color = colorScheme.onSurface.copy(alpha = 0.6f)
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = if (isMoneroModeActive) Color(0xFFFF6B35) else colorScheme.primary,
+                        unfocusedBorderColor = colorScheme.outline.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = { onSend() }
+                    )
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Monero toggle button (only visible in private chats)
+                if (selectedPrivatePeer != null && isWalletReady) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isMoneroModeActive) Color(0xFFFF6B35) else colorScheme.surface,
+                        tonalElevation = if (isMoneroModeActive) 0.dp else 2.dp,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        IconButton(
+                            onClick = onMoneroModeToggle,
+                            enabled = canReceiveMonero
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CurrencyExchange,
+                                contentDescription = if (isMoneroModeActive) "Switch to message mode" else "Switch to Monero mode",
+                                tint = if (isMoneroModeActive) Color.White else 
+                                      if (canReceiveMonero) colorScheme.primary else colorScheme.onSurface.copy(alpha = 0.4f)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
+                // Send button
+                Surface(
+                    shape = CircleShape,
+                    color = if (messageText.text.isNotBlank()) {
+                        if (isMoneroModeActive) Color(0xFFFF6B35) else colorScheme.primary
+                    } else colorScheme.surface,
+                    tonalElevation = if (messageText.text.isNotBlank()) 0.dp else 2.dp,
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    IconButton(
+                        onClick = onSend,
+                        enabled = messageText.text.isNotBlank()
+                    ) {
+                        Icon(
+                            imageVector = if (isMoneroModeActive) Icons.Default.CurrencyExchange else Icons.Default.Send,
+                            contentDescription = if (isMoneroModeActive) "Send Monero" else "Send message",
+                            tint = if (messageText.text.isNotBlank()) Color.White else colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -732,7 +673,6 @@ private fun ChatFloatingHeader(
     onShowAppInfo: () -> Unit,
     onPanicClear: () -> Unit,
     onLocationChannelsClick: () -> Unit,
-    onLocationNotesClick: () -> Unit,
     // Monero wallet parameters
     isWalletReady: Boolean,
     currentBalance: String,
@@ -740,9 +680,6 @@ private fun ChatFloatingHeader(
     isSyncing: Boolean,
     syncProgress: Int
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val locationManager = remember { com.bitchat.android.geohash.LocationChannelManager.getInstance(context) }
-    
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -768,11 +705,7 @@ private fun ChatFloatingHeader(
                         onSidebarClick = onSidebarToggle,
                         onTripleClick = onPanicClear,
                         onShowAppInfo = onShowAppInfo,
-                        onLocationChannelsClick = onLocationChannelsClick,
-                        onLocationNotesClick = {
-                            locationManager.refreshChannels()
-                            onLocationNotesClick()
-                        }
+                        onLocationChannelsClick = onLocationChannelsClick
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -857,114 +790,6 @@ private fun MoneroWalletStatusBar(
 }
 
 @Composable
-private fun ChatHeaderContent(
-    selectedPrivatePeer: String?,
-    currentChannel: String?,
-    nickname: String,
-    viewModel: ChatViewModel,
-    onBackClick: () -> Unit,
-    onSidebarClick: () -> Unit,
-    onTripleClick: () -> Unit,
-    onShowAppInfo: () -> Unit,
-    onLocationChannelsClick: () -> Unit,
-    onLocationNotesClick: () -> Unit
-) {
-    var clickCount by remember { mutableStateOf(0) }
-    val clickTimeoutJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val scope = rememberCoroutineScope()
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Left side - Back button and title
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
-        ) {
-            // Back button (only show when in private chat or specific channel)
-            if (selectedPrivatePeer != null || currentChannel != null) {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back to main chat"
-                    )
-                }
-            }
-
-            // Title with triple-click handler
-            Text(
-                text = when {
-                    selectedPrivatePeer != null -> "Chat with $selectedPrivatePeer"
-                    currentChannel != null -> "#$currentChannel"
-                    else -> "BitChat"
-                },
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.clickable {
-                    clickCount++
-                    clickTimeoutJob?.cancel()
-                    
-                    if (clickCount >= 3) {
-                        onTripleClick()
-                        clickCount = 0
-                    } else {
-                        scope.launch {
-                            kotlinx.coroutines.delay(500)
-                            clickCount = 0
-                        }
-                    }
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        // Right side - Action buttons
-        Row {
-            // Location channels button
-            IconButton(onClick = onLocationChannelsClick) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = "Location channels"
-                )
-            }
-
-            // App info button
-            IconButton(onClick = onShowAppInfo) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = "App info"
-                )
-            }
-
-            // Sidebar toggle
-            IconButton(onClick = onSidebarClick) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = "Open sidebar"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun CommandSuggestionsBox(
-    suggestions: List<CommandSuggestion>,
-    onSuggestionClick: (CommandSuggestion) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyRow(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(suggestions) { suggestion ->
-            Surface(
-                onClick = { onSuggestionClick(suggestion) },
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.animateItemPlacement()
 private fun SidebarChannelItem(
     name: String,
     isSelected: Boolean,
@@ -1093,25 +918,39 @@ private fun AboutSheet(
                     .fillMaxWidth()
                     .padding(24.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
+                Text(
+                    text = "About BitChat",
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                
+                Text(
+                    text = "BitChat is a decentralized messaging application with integrated Monero payments.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                
+                Text(
+                    text = "Features:",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                
+                val features = listOf(
+                    "Mesh networking for offline communication",
+                    "Encrypted private messaging",
+                    "Channel-based group chat",
+                    "Location-based channels",
+                    "Integrated Monero wallet",
+                    "Peer-to-peer payments"
+                )
+                
+                features.forEach { feature ->
                     Text(
-                        text = suggestion.command,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        text = "• $feature",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 4.dp)
                     )
-                    if (suggestion.description.isNotEmpty()) {
-                        Text(
-                            text = suggestion.description,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
                 }
                 
                 Spacer(modifier = Modifier.height(24.dp))
@@ -1121,27 +960,42 @@ private fun AboutSheet(
 }
 
 @Composable
-private fun MentionSuggestionsBox(
-    suggestions: List<String>,
-    onSuggestionClick: (String) -> Unit,
-    modifier: Modifier = Modifier
+private fun LocationChannelItem(
+    channelName: String,
+    distance: String,
+    memberCount: Int,
+    onClick: () -> Unit
 ) {
-    LazyRow(
-        modifier = modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(12.dp)
     ) {
-        items(suggestions) { mention ->
-            Surface(
-                onClick = { onSuggestionClick(mention) },
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                modifier = Modifier.animateItemPlacement()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Column(
+                modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = "@$mention",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    text = channelName,
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "$distance • $memberCount members",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )
             }
             
@@ -1199,22 +1053,12 @@ private fun ChatDialogs(
     onAppInfoDismiss: () -> Unit,
     showLocationChannelsSheet: Boolean,
     onLocationChannelsSheetDismiss: () -> Unit,
-    showLocationNotesSheet: Boolean,
-    onLocationNotesSheetDismiss: () -> Unit,
     showUserSheet: Boolean,
     onUserSheetDismiss: () -> Unit,
     selectedUserForSheet: String,
     selectedMessageForSheet: BitchatMessage?,
-    viewModel: ChatViewModel,
-    showVerificationSheet: Boolean,
-    onVerificationSheetDismiss: () -> Unit,
-    showSecurityVerificationSheet: Boolean,
-    onSecurityVerificationSheetDismiss: () -> Unit,
-    showMeshPeerListSheet: Boolean,
-    onMeshPeerListDismiss: () -> Unit,
+    viewModel: ChatViewModel
 ) {
-    val privateChatSheetPeer by viewModel.privateChatSheetPeer.collectAsStateWithLifecycle()
-
     // Password dialog
     PasswordPromptDialog(
         show = showPasswordDialog,
@@ -1226,19 +1070,10 @@ private fun ChatDialogs(
     )
 
     // About sheet
-    var showDebugSheet by remember { mutableStateOf(false) }
     AboutSheet(
         isPresented = showAppInfo,
-        onDismiss = onAppInfoDismiss,
-        onShowDebug = { showDebugSheet = true }
+        onDismiss = onAppInfoDismiss
     )
-    if (showDebugSheet) {
-        com.bitchat.android.ui.debug.DebugSettingsSheet(
-            isPresented = showDebugSheet,
-            onDismiss = { showDebugSheet = false },
-            meshService = viewModel.meshService
-        )
-    }
     
     // Location channels sheet
     LocationChannelsSheet(
@@ -1247,66 +1082,7 @@ private fun ChatDialogs(
         viewModel = viewModel
     )
     
-    // Location notes sheet (extracted to separate presenter)
-    if (showLocationNotesSheet) {
-        LocationNotesSheetPresenter(
-            viewModel = viewModel,
-            onDismiss = onLocationNotesSheetDismiss
-        )
-    }
-    
     // User action sheet
-    if (showUserSheet) {
-        ChatUserSheet(
-            isPresented = showUserSheet,
-            onDismiss = onUserSheetDismiss,
-            targetNickname = selectedUserForSheet,
-            selectedMessage = selectedMessageForSheet,
-            viewModel = viewModel
-        )
-    }
-
-    // MeshPeerList sheet (network view)
-    if (showMeshPeerListSheet){
-        MeshPeerListSheet(
-            isPresented = showMeshPeerListSheet,
-            viewModel = viewModel,
-            onDismiss = onMeshPeerListDismiss,
-            onShowVerification = {
-                onMeshPeerListDismiss()
-                viewModel.showVerificationSheet(fromSidebar = true)
-            }
-        )
-    }
-
-    if (showVerificationSheet) {
-        VerificationSheet(
-            isPresented = showVerificationSheet,
-            onDismiss = onVerificationSheetDismiss,
-            viewModel = viewModel
-        )
-    }
-
-    if (showSecurityVerificationSheet) {
-        SecurityVerificationSheet(
-            isPresented = showSecurityVerificationSheet,
-            onDismiss = onSecurityVerificationSheetDismiss,
-            viewModel = viewModel
-        )
-    }
-
-    if (privateChatSheetPeer != null) {
-        PrivateChatSheet(
-            isPresented = true,
-            peerID = privateChatSheetPeer!!,
-            viewModel = viewModel,
-            onDismiss = {
-                viewModel.hidePrivateChatSheet()
-                viewModel.endPrivateChat()
-            }
-        )
-    }
-}
     ChatUserSheet(
         isPresented = showUserSheet,
         onDismiss = onUserSheetDismiss,

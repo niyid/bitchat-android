@@ -1,9 +1,6 @@
 package com.m2049r.xmrwallet.model;
 
 public class PendingTransaction {
-    static {
-        System.loadLibrary("monerujo");
-    }
 
     private long handle;
 
@@ -28,6 +25,6 @@ public class PendingTransaction {
     public native boolean commit(String filename, boolean overwrite);
     public native String getFirstTxId();
     public native long getFee();
-    public native byte[] getSerializedTransaction();    
+    public native byte[] getSerializedTransaction();  // matches getSerializedTransactionJ
 }
 
