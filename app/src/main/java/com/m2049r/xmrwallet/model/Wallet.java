@@ -1,9 +1,6 @@
 package com.m2049r.xmrwallet.model;
 
 public class Wallet {
-    static {
-        System.loadLibrary("monerujo");
-    }
 
     public enum Status {
         Status_Ok,

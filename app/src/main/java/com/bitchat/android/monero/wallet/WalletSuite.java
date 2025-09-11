@@ -18,25 +18,41 @@ import com.m2049r.xmrwallet.util.Helper;
  * Enhanced Monero wallet manager for BitChat using Monerujo library
  * Handles wallet creation, transactions, balance management, and Bluetooth/Chat blob workflows
  */
-public class MoneroWalletManager {
-
-    private static final String TAG = "MoneroWalletManager";
+public class WalletSuite {
+    private static final String TAG = "com.bitchat.android.monero.wallet.WalletSuite";
     private static final String WALLET_NAME = "bitchat_wallet";
     private static final String WALLET_PASSWORD = "bitchat_secure_pass"; // In production, use secure storage / key derivation
     private static final String WALLET_LANGUAGE = "English";
 
-    // Load native Monerujo JNI library
-    static {
-        try {
-            System.loadLibrary("monerujo");
-            Log.d(TAG, "Monerujo native library loaded successfully");
-        } catch (UnsatisfiedLinkError e) {
-            Log.e(TAG, "Failed to load monerujo native library", e);
-            throw new RuntimeException("Cannot load monerujo library", e);
+    private static volatile boolean nativeOk = false;
+    private static volatile boolean nativeChecked = false;
+    private static volatile WalletSuite instance;
+
+    private WalletSuite() {}
+
+    public static boolean nativeAvailable() {
+        if (!nativeChecked) {
+            synchronized (WalletSuite.class) {
+                if (!nativeChecked) {
+                    try {
+                        Log.i(TAG, "Attempting to load native library monerujo");
+                        System.loadLibrary("monerujo");
+                        nativeOk = true;
+                        Log.i(TAG, "Native library monerujo loaded successfully");
+                    } catch (UnsatisfiedLinkError e) {
+                        Log.w(TAG, "Failed to load native library monerujo", e);
+                        nativeOk = false;
+                    } catch (Exception e) {
+                        Log.e(TAG, "Unexpected error loading native library", e);
+                        nativeOk = false;
+                    }
+                    nativeChecked = true;
+                }
+            }
         }
+        return nativeOk;
     }
 
-    private static MoneroWalletManager instance;
     private Wallet wallet;
     private Context context;
     private ExecutorService executorService;
@@ -44,14 +60,12 @@ public class MoneroWalletManager {
     private boolean isInitialized = false;
     private boolean isSyncing = false;
 
-    // Configuration
     private String daemonAddress = "node.xmr.to";
     private int daemonPort = 18081;
     private String daemonUsername = "";
     private String daemonPassword = "";
     private boolean isTestnet = false;
 
-    // Listeners
     private WalletStatusListener statusListener;
     private TransactionListener transactionListener;
 
@@ -68,15 +82,15 @@ public class MoneroWalletManager {
         void onOutputReceived(long amount, String txHash, boolean isConfirmed);
     }
 
-    private MoneroWalletManager(Context context) {
+    private WalletSuite(Context context) {
         this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
 
-    public static synchronized MoneroWalletManager getInstance(Context context) {
+    public static synchronized WalletSuite getInstance(Context context) {
         if (instance == null) {
-            instance = new MoneroWalletManager(context);
+            instance = new WalletSuite(context);
         }
         return instance;
     }
@@ -89,38 +103,57 @@ public class MoneroWalletManager {
         this.isTestnet = testnet;
     }
 
-    /**
-     * Initialize the Monero wallet.
-     *
-     * @param networkType 0 = mainnet, 1 = testnet, 2 = stagenet
-     */
     public void initializeWallet(int networkType) {
         executorService.execute(() -> {
             try {
-                String walletPath = getWalletPath();
-                File walletFile = new File(walletPath + ".keys");
+                File dir = context.getDir("wallets", Context.MODE_PRIVATE);
+                if (!dir.exists() && !dir.mkdirs()) {
+                    Log.e(TAG, "Failed to create wallets directory: " + dir.getAbsolutePath());
+                    notifyWalletInitialized(false, "Failed to create wallets directory");
+                    return;
+                }
+
+                if (!dir.isDirectory() || !dir.canWrite()) {
+                    Log.e(TAG, "Wallet directory not writable: " + dir.getAbsolutePath());
+                    notifyWalletInitialized(false, "Wallet directory not writable");
+                    return;
+                }
+
+                String walletPath = new File(dir, WALLET_NAME).getAbsolutePath();
+                Log.d(TAG, "Wallet path: " + walletPath);
+
+                File keysFile = new File(walletPath + ".keys");
+                File cacheFile = new File(walletPath);
+                File addrFile = new File(walletPath + ".address.txt");
 
                 WalletManager mgr = WalletManager.getInstance();
 
-                if (walletFile.exists()) {
-                    wallet = mgr.openWallet(walletPath, WALLET_PASSWORD);
-                    Log.d(TAG, "Existing wallet opened");
+                if (keysFile.exists() && cacheFile.exists()) {
+                    Log.d(TAG, "Opening existing wallet...");
+                    wallet = mgr.openWalletJ(walletPath, WALLET_PASSWORD);
+                } else if (keysFile.exists() || cacheFile.exists() || addrFile.exists()) {
+                    backupFile(keysFile);
+                    backupFile(cacheFile);
+                    backupFile(addrFile);
+
+                    Log.d(TAG, "Recreating wallet (networkType=" + networkType + ")");
+                    wallet = mgr.createWalletJ(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
                 } else {
-                    wallet = mgr.createWallet(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
-                    String networkName = networkType == 1 ? "testnet" :
-                                         networkType == 2 ? "stagenet" : "mainnet";
-                    Log.d(TAG, "New wallet created (" + networkName + ")");
+                    Log.d(TAG, "Creating new wallet (networkType=" + networkType + ")");
+                    wallet = mgr.createWalletJ(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
                 }
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
                     isInitialized = true;
-                    String networkName = networkType == 1 ? "testnet" :
-                                         networkType == 2 ? "stagenet" : "mainnet";
+                    String networkName = (networkType == 1) ? "testnet"
+                                       : (networkType == 2) ? "stagenet"
+                                       : "mainnet";
+                    Log.i(TAG, "Wallet initialized successfully (" + networkName + ")");
                     notifyWalletInitialized(true, "Wallet initialized successfully (" + networkName + ")");
                     startSync();
                 } else {
-                    String error = wallet != null ? wallet.getErrorString() : "Unknown error";
+                    String error = (wallet != null) ? wallet.getErrorString() : "Unknown JNI error";
                     Log.e(TAG, "Wallet initialization failed: " + error);
                     notifyWalletInitialized(false, "Failed to initialize wallet: " + error);
                 }
@@ -132,13 +165,25 @@ public class MoneroWalletManager {
         });
     }
 
+    private void backupFile(File file) {
+        if (file != null && file.exists()) {
+            String backupName = file.getAbsolutePath() + ".bak_" + System.currentTimeMillis();
+            boolean renamed = file.renameTo(new File(backupName));
+            if (renamed) {
+                Log.w(TAG, "Backed up " + file.getName() + " → " + backupName);
+            } else {
+                Log.e(TAG, "Failed to back up " + file.getName());
+            }
+        }
+    }
+
     public void initializeWalletFromSeed(String seedPhrase, long restoreHeight) {
         executorService.execute(() -> {
             try {
                 String walletPath = getWalletPath();
 
                 WalletManager mgr = WalletManager.getInstance();
-                wallet = mgr.recoveryWallet(walletPath, WALLET_PASSWORD, seedPhrase, "", restoreHeight);
+                wallet = mgr.recoveryWalletJ(walletPath, WALLET_PASSWORD, seedPhrase, "", restoreHeight);
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
@@ -156,21 +201,6 @@ public class MoneroWalletManager {
                 notifyWalletInitialized(false, "Error: " + e.getMessage());
             }
         });
-    }
-
-    private void setupWallet() {
-        if (wallet == null) return;
-
-        boolean connected = wallet.setDaemonAddress(daemonAddress, daemonPort);
-        if (!connected) {
-            Log.w(TAG, "Failed to connect to daemon");
-        }
-
-        if (!daemonUsername.isEmpty()) {
-            wallet.setDaemonLogin(daemonUsername, daemonPassword);
-        }
-
-        Log.d(TAG, "Wallet setup completed");
     }
 
     private String getWalletPath() {
@@ -402,7 +432,22 @@ public class MoneroWalletManager {
             Log.d(TAG, "Sync stopped");
         }
     }
+    
+    private void setupWallet() {
+        if (wallet == null) return;
 
+        boolean connected = wallet.setDaemonAddress(daemonAddress, daemonPort);
+        if (!connected) {
+            Log.w(TAG, "Failed to connect to daemon");
+        }
+
+        if (!daemonUsername.isEmpty()) {
+            wallet.setDaemonLogin(daemonUsername, daemonPassword);
+        }
+
+        Log.d(TAG, "Wallet setup completed");
+    }
+    
     public boolean isSyncing() {
         return isSyncing && wallet != null;
     }

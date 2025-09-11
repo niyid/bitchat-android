@@ -1,9 +1,6 @@
 package com.m2049r.xmrwallet.model;
 
 public class WalletManager {
-    static {
-        System.loadLibrary("monerujo");
-    }
 
     private static WalletManager instance = null;
 
@@ -14,13 +11,14 @@ public class WalletManager {
         return instance;
     }
 
-    private WalletManager() {}
+    public native Wallet createWalletJ(String path, String password, String language, int networkType);
 
-    // JNI methods
-    public native Wallet createWallet(String path, String password, String language, int networkType);
-    public native Wallet openWallet(String path, String password);
-    public native Wallet recoveryWallet(String path, String password, String mnemonic, String seedOffset, long restoreHeight);
-    public native Wallet loadWallet(String path, String password);
-    public native boolean walletExists(String path);
+    public native Wallet openWalletJ(String path, String password);
+
+    public native Wallet recoveryWalletJ(String path, String password, String mnemonic, String seedOffset, long restoreHeight);
+
+    public native Wallet loadWalletJ(String path, String password);
+
+    public native boolean walletExistsJ(String path);
 }
 

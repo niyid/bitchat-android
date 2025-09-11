@@ -37,7 +37,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bitchat.android.model.BitchatMessage
-import com.bitchat.android.monero.wallet.MoneroWalletManager
+import com.bitchat.android.monero.wallet.WalletSuite
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -71,7 +71,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val showAppInfo by viewModel.showAppInfo.observeAsState(false)
 
     // Monero-related state
-    var moneroWalletManager by remember { mutableStateOf<MoneroWalletManager?>(null) }
+    var walletSuite by remember { mutableStateOf<WalletSuite?>(null) }
     var moneroMessageHandler by remember { mutableStateOf<MoneroMessageHandler?>(null) }
     var isMoneroModeActive by remember { mutableStateOf(false) }
     var currentBalance by remember { mutableStateOf("0.000000") }
@@ -94,15 +94,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
     // Initialize Monero components
     LaunchedEffect(Unit) {
-        moneroWalletManager = MoneroWalletManager.getInstance(context).apply {
-            setWalletStatusListener(object : MoneroWalletManager.WalletStatusListener {
+        walletSuite = WalletSuite.getInstance(context).apply {
+            setWalletStatusListener(object : WalletSuite.WalletStatusListener {
                 override fun onWalletInitialized(success: Boolean, message: String) {
                     isWalletReady = success
                     if (success) {
                         walletStatusMessage = "Wallet ready"
-                        getBalance(object : MoneroWalletManager.BalanceCallback {
+                        getBalance(object : WalletSuite.BalanceCallback {
                             override fun onSuccess(balance: Long, unlockedBalance: Long) {
-                                currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
+                                currentBalance = WalletSuite.convertAtomicToXmr(unlockedBalance)
                             }
                             override fun onError(error: String) {
                                 walletStatusMessage = "Balance error: $error"
@@ -114,7 +114,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
 
                 override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
-                    currentBalance = MoneroWalletManager.convertAtomicToXmr(unlockedBalance)
+                    currentBalance = WalletSuite.convertAtomicToXmr(unlockedBalance)
                 }
 
                 override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
@@ -129,9 +129,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             })
 
-            setTransactionListener(object : MoneroWalletManager.TransactionListener {
+            setTransactionListener(object : WalletSuite.TransactionListener {
                 override fun onTransactionCreated(txId: String, amount: Long) {
-                    val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
                     viewModel.addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
                 }
 
@@ -146,7 +146,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
 
                 override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
-                    val amountXmr = MoneroWalletManager.convertAtomicToXmr(amount)
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
                     val status = if (isConfirmed) "confirmed" else "pending"
                     viewModel.addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                 }
@@ -261,7 +261,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     selectedMessageForSheet = message
                     showUserSheet = true
                 },
-                moneroWalletManager = moneroWalletManager,   
+                walletSuite = walletSuite,   
                 viewModel = viewModel                        
             )
             
@@ -279,7 +279,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             // Handle Monero send
                             handleMoneroSend(
                                 amount = messageText.text.trim(),
-                                moneroWalletManager = moneroWalletManager,
+                                walletSuite = walletSuite,
                                 selectedPrivatePeer = selectedPrivatePeer,
                                 canReceiveMonero = canReceiveMonero,
                                 peerMoneroAddresses = peerMoneroAddresses,
@@ -472,7 +472,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
 // Monero send handler function
 private fun handleMoneroSend(
     amount: String,
-    moneroWalletManager: MoneroWalletManager?,
+    walletSuite: WalletSuite?,
     selectedPrivatePeer: String?,
     canReceiveMonero: Boolean,
     peerMoneroAddresses: Map<String, String>,
@@ -480,7 +480,7 @@ private fun handleMoneroSend(
     onSuccess: () -> Unit,
     onError: (String) -> Unit
 ) {
-    if (moneroWalletManager == null || selectedPrivatePeer == null || !canReceiveMonero) {
+    if (walletSuite == null || selectedPrivatePeer == null || !canReceiveMonero) {
         onError("Cannot send Monero: wallet not ready or peer cannot receive Monero")
         return
     }
@@ -493,10 +493,10 @@ private fun handleMoneroSend(
 
     try {
         // Directly pass amount (as String) to createTxBlob
-        moneroWalletManager.createTxBlob(
+        walletSuite.createTxBlob(
             peerMoneroAddress,
             amount,
-            object : MoneroWalletManager.TxBlobCallback {
+            object : WalletSuite.TxBlobCallback {
                 override fun onSuccess(txId: String, base64Blob: String) {
                     if (base64Blob.isEmpty()) {
                         onError("Failed to create transaction blob")

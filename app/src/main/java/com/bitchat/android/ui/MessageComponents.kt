@@ -24,7 +24,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.model.DeliveryStatus
 import com.bitchat.android.mesh.BluetoothMeshService
-import com.bitchat.android.monero.wallet.MoneroWalletManager
+import com.bitchat.android.monero.wallet.WalletSuite
 import java.text.SimpleDateFormat
 import java.util.*
 import android.util.Base64
@@ -39,7 +39,7 @@ fun MessagesList(
     messages: List<BitchatMessage>,
     currentUserNickname: String,
     meshService: BluetoothMeshService,
-    moneroWalletManager: MoneroWalletManager?,
+    walletSuite: WalletSuite?,
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier,
     forceScrollToBottom: Boolean = false,
@@ -100,7 +100,7 @@ fun MessagesList(
                 currentUserNickname = currentUserNickname,
                 onNicknameClick = onNicknameClick,
                 onMessageLongPress = onMessageLongPress,
-                moneroWalletManager = moneroWalletManager,
+                walletSuite = walletSuite,
                 viewModel = viewModel
             )
         }
@@ -113,7 +113,7 @@ fun MessageItem(
     currentUserNickname: String,
     onNicknameClick: ((String) -> Unit)?,
     onMessageLongPress: ((BitchatMessage) -> Unit)?,
-    moneroWalletManager: MoneroWalletManager?,
+    walletSuite: WalletSuite?,
     viewModel: ChatViewModel
 ) {
     val isCurrentUser = message.sender == currentUserNickname
@@ -126,7 +126,7 @@ fun MessageItem(
                 try {
                     val base64Blob = message.content.removePrefix("[XMR_TX_BLOB]")
                     val blob = Base64.decode(base64Blob, Base64.NO_WRAP)
-                    val txId = moneroWalletManager?.submitTxBlob(blob)
+                    val txId = walletSuite?.submitTxBlob(blob)
 
                     if (txId != null) {
                         viewModel.addSystemMessage("✅ Submitted Monero tx: $txId")
