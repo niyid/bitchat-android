@@ -42,6 +42,7 @@ public class Wallet {
         }
     }
 
+    private String lastErrorString = null;
     private long handle;
     private long listenerHandle;
 
@@ -63,7 +64,7 @@ public class Wallet {
     public native String getSeedLanguage();
     public native void setSeedLanguage(String language);
     public native int getStatusJ();
-    public native String getErrorString();
+    private native int statusWithErrorString(int[] outStatus, String[] outError);
     public native boolean setPassword(String password);
     public native String getAddress();
     public native String getPath();
@@ -205,6 +206,18 @@ public class Wallet {
         setListenerJ(listener);
     }
     
+    public int getLastStatus() {
+        int[] outStatus = new int[1];
+        String[] outError = new String[1];
+        int r = statusWithErrorString(outStatus, outError);
+        lastErrorString = outError[0];
+        return outStatus[0];
+    }
+
+    public String getErrorString() {
+        return lastErrorString;
+    }
+        
     // Cleanup
     @Override
     protected void finalize() throws Throwable {
