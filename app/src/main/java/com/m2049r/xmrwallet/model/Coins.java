@@ -1,23 +1,26 @@
 package com.m2049r.xmrwallet.model;
 
-public class Coins {
-    private long handle; 
+import java.util.List;
 
-    Coins(long handle) {
+public class Coins {
+
+    private long handle;
+
+    public Coins(long handle) {
         this.handle = handle;
     }
 
-    // Return the number of coins
-    public native int getCount();
-
-    // Get a single coin’s info by index
-    public native CoinsInfo get(int index);
-
-    // Refresh list from native wallet
+    public native int count();
+    public native List<CoinsInfo> getAll();
+    public native CoinsInfo coin(int index);
     public native void refresh();
+    public native void setFrozen(int index);
+    public native void thaw(int index);
+    public native boolean isTransferUnlocked(int index);
 
-    // Freeze/unfreeze a specific output
-    public native void freeze(String keyImage);
-    public native void thaw(String keyImage);
+    @Override
+    protected void finalize() throws Throwable {
+        // Handle cleanup handled by wallet
+        super.finalize();
+    }
 }
-

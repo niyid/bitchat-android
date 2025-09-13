@@ -20,6 +20,8 @@
 # Keep Monerujo classes
 -keep class com.m2049r.xmrwallet.model.** { *; }
 -keep class com.m2049r.xmrwallet.util.** { *; }
+-keep class com.m2049r.xmrwallet.ledger.** { *; }
+-keep class com.m2049r.xmrwallet.service.** { *; }
 
 # Keep native method names
 -keepclasseswithmembernames class * {

@@ -48,8 +48,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -100,6 +100,14 @@ android {
 }
 
 dependencies {
+    // --- Lombok (compile-time only, not packaged in APK) ---
+    compileOnly("org.projectlombok:lombok:1.18.34")
+    annotationProcessor("org.projectlombok:lombok:1.18.34")
+
+    // Optional: For annotation processing in test sources
+    testCompileOnly("org.projectlombok:lombok:1.18.34")
+    testAnnotationProcessor("org.projectlombok:lombok:1.18.34")
+
     // Core Android dependencies
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -130,21 +138,13 @@ dependencies {
     // Bluetooth
     implementation(libs.nordic.ble)
     
-    // REMOVED: Standard monero-java library
-    // implementation("io.github.woodser:monero-java:0.8.38")
-    
-    // ADDED: Monerujo dependencies
-    // Note: You'll need to include Monerujo source files in your project
-    // as they're not published as a standalone library
-    // The native libmonerujo.so should be placed in app/src/main/jniLibs/
-    
-    // JSON processing (if not already included)
+    // Monerujo dependencies
     implementation("org.json:json:20231013")
-
+    
     // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
 
-    // Networking (for Monero RPC if needed)
+    // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
@@ -169,3 +169,4 @@ dependencies {
     androidTestImplementation(libs.bundles.compose.testing)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+

@@ -1,0 +1,24 @@
+🔍 Scanning Java source files for native methods...
+Java Source Directory: /home/niyid/git/bitchat-android/app/src/main/java
+Shared Libraries Directory: /home/niyid/git/bitchat-android/app/src/main/jniLibs
+-------------------------------------------------------------
+📂 Checking file: /home/niyid/git/bitchat-android/app/src/main/java/com/m2049r/xmrwallet/ledger/Ledger.java
+   Package: com.m2049r.xmrwallet.ledger
+   Class: Ledger
+   → Method: connect
+     Expected JNI Symbol: Java_com_m2049r_xmrwallet_ledger_Ledger_connect
+       ❌ MISSING: Neither 'Java_com_m2049r_xmrwallet_ledger_Ledger_connect' nor 'Java_com_m2049r_xmrwallet_ledger_Ledger_connectJ' found in any .so file
+   → Method: disconnect
+     Expected JNI Symbol: Java_com_m2049r_xmrwallet_ledger_Ledger_disconnect
+       ❌ MISSING: Neither 'Java_com_m2049r_xmrwallet_ledger_Ledger_disconnect' nor 'Java_com_m2049r_xmrwallet_ledger_Ledger_disconnectJ' found in any .so file
+   → Method: isConnected
+     Expected JNI Symbol: Java_com_m2049r_xmrwallet_ledger_Ledger_isConnected
+       ❌ MISSING: Neither 'Java_com_m2049r_xmrwallet_ledger_Ledger_isConnected' nor 'Java_com_m2049r_xmrwallet_ledger_Ledger_isConnectedJ' found in any .so file
+   → Method: getDeviceState
+     Expected JNI Symbol: Java_com_m2049r_xmrwallet_ledger_Ledger_getDeviceState
+       ❌ MISSING: Neither 'Java_com_m2049r_xmrwallet_ledger_Ledger_getDeviceState' nor 'Java_com_m2049r_xmrwallet_ledger_Ledger_getDeviceStateJ' found in any .so file
+   → Method: getDescriptor
+     Expected JNI Symbol: Java_com_m2049r_xmrwallet_ledger_Ledger_getDescriptor
+       ❌ MISSING: Neither 'Java_com_m2049r_xmrwallet_ledger_Ledger_getDescriptor' nor 'Java_com_m2049r_xmrwallet_ledger_Ledger_getDescriptorJ' found in any .so file
+   → Method: getDeviceInfo
+     Expected JNI Symbol: Java_com_m2049r_xmrwallet_ledger_Ledger_getDeviceInfo
