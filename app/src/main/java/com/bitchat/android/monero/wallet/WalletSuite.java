@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import com.m2049r.xmrwallet.model.Wallet;
+import com.m2049r.xmrwallet.model.WalletListener;
 import com.m2049r.xmrwallet.model.WalletManager;
 import com.m2049r.xmrwallet.model.PendingTransaction;
 import com.m2049r.xmrwallet.util.Helper;
@@ -61,7 +62,7 @@ public class WalletSuite {
     private boolean isSyncing = false;
 
     private String daemonAddress = "node.xmr.to";
-    private int daemonPort = 18081;
+    private int daemonPort = 28080;
     private String daemonUsername = "";
     private String daemonPassword = "";
     private boolean isTestnet = false;
@@ -91,6 +92,10 @@ public class WalletSuite {
     public static synchronized WalletSuite getInstance(Context context) {
         if (instance == null) {
             instance = new WalletSuite(context);
+
+            if (!nativeAvailable()) {
+                Log.e(TAG, "Failed to load native library monerujo");
+            }
         }
         return instance;
     }
@@ -130,17 +135,17 @@ public class WalletSuite {
 
                 if (keysFile.exists() && cacheFile.exists()) {
                     Log.d(TAG, "Opening existing wallet...");
-                    wallet = mgr.openWalletJ(walletPath, WALLET_PASSWORD);
+                    wallet = mgr.openWallet(walletPath, WALLET_PASSWORD, 1);
                 } else if (keysFile.exists() || cacheFile.exists() || addrFile.exists()) {
                     backupFile(keysFile);
                     backupFile(cacheFile);
                     backupFile(addrFile);
 
                     Log.d(TAG, "Recreating wallet (networkType=" + networkType + ")");
-                    wallet = mgr.createWalletJ(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
+                    wallet = mgr.createWallet(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
                 } else {
                     Log.d(TAG, "Creating new wallet (networkType=" + networkType + ")");
-                    wallet = mgr.createWalletJ(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
+                    wallet = mgr.createWallet(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
                 }
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
@@ -177,13 +182,13 @@ public class WalletSuite {
         }
     }
 
-    public void initializeWalletFromSeed(String seedPhrase, long restoreHeight) {
+    public void initializeWalletFromSeed(String seedPhrase, long restoreHeight, int nettype) {
         executorService.execute(() -> {
             try {
                 String walletPath = getWalletPath();
 
                 WalletManager mgr = WalletManager.getInstance();
-                wallet = mgr.recoveryWalletJ(walletPath, WALLET_PASSWORD, seedPhrase, "", restoreHeight);
+                wallet = mgr.recoveryWallet(walletPath, WALLET_PASSWORD, seedPhrase, nettype, restoreHeight);
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
@@ -338,9 +343,9 @@ public class WalletSuite {
 
         executorService.execute(() -> {
             try {
-                Wallet.Listener syncListener = new Wallet.Listener() {
+                WalletListener syncListener = new WalletListener() {
                     @Override
-                    public void moneySpent(String txId, long amount) {}
+                    public void moneySent(String txId, long amount) {}
 
                     @Override
                     public void moneyReceived(String txId, long amount) {
@@ -435,8 +440,10 @@ public class WalletSuite {
     
     private void setupWallet() {
         if (wallet == null) return;
+        
+        WalletManager mgr = WalletManager.getInstance();
 
-        boolean connected = wallet.setDaemonAddress(daemonAddress, daemonPort);
+        boolean connected = mgr.setDaemonAddress(daemonAddress, daemonPort);
         if (!connected) {
             Log.w(TAG, "Failed to connect to daemon");
         }

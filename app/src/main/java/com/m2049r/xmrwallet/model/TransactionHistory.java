@@ -1,19 +1,24 @@
 package com.m2049r.xmrwallet.model;
 
-public class TransactionHistory {
-    private long handle; 
+import java.util.List;
 
-    TransactionHistory(long handle) {
+public class TransactionHistory {
+    private long handle;
+
+    public TransactionHistory(long handle) {
         this.handle = handle;
     }
 
-    // Number of transactions in history
-    public native int getCount();
-
-    // Get a transaction by index
-    public native TransactionInfo getTransaction(int index);
-
-    // Refresh from the daemon
+    public native int count();
+    public native TransactionInfo transaction(int index);
+    public native TransactionInfo transaction(String id);
+    public native List<TransactionInfo> getAll();
     public native void refresh();
-}
+    public native void setTxNote(String txid, String note);
 
+    @Override
+    protected void finalize() throws Throwable {
+        // Handle cleanup handled by wallet
+        super.finalize();
+    }
+}
