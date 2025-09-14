@@ -11,6 +11,9 @@ import com.bitchat.android.mesh.BluetoothMeshService
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.protocol.BitchatPacket
 import com.bitchat.android.nostr.NostrGeohashService
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -106,6 +109,9 @@ class ChatViewModel(
     val geohashPeople: LiveData<List<GeoPerson>> = state.geohashPeople
     val teleportedGeo: LiveData<Set<String>> = state.teleportedGeo
     val geohashParticipantCounts: LiveData<Map<String, Int>> = state.geohashParticipantCounts
+    // Map of peer -> Monero address
+    private val _peerMoneroAddresses = mutableStateOf(emptyMap<String, String>())
+    val peerMoneroAddresses: Map<String, String> get() = _peerMoneroAddresses.value
     
     init {
         // Note: Mesh service delegate is now set by MainActivity
@@ -338,6 +344,12 @@ class ChatViewModel(
         return meshService.getPeerNicknames().entries.find { it.value == nickname }?.key
     }
     
+    fun updatePeerMoneroAddress(peerID: String, address: String) {
+        val updatedMap = _peerMoneroAddresses.value.toMutableMap()
+        updatedMap[peerID] = address
+        _peerMoneroAddresses.value = updatedMap
+    }
+        
     fun toggleFavorite(peerID: String) {
         Log.d("ChatViewModel", "toggleFavorite called for peerID: $peerID")
         privateChatManager.toggleFavorite(peerID)
@@ -515,11 +527,27 @@ class ChatViewModel(
     // MARK: - BluetoothMeshDelegate Implementation (delegated)
     
     override fun didReceiveMessage(message: BitchatMessage) {
-        meshDelegateHandler.didReceiveMessage(message)
+        // Detect if this is a Monero address broadcast
+        if (message.content.startsWith("MY_MONERO_ADDRESS:")) {
+            val address = message.content.removePrefix("MY_MONERO_ADDRESS:")
+            updatePeerMoneroAddress(message.senderPeerID ?: message.sender, address)
+            Log.d(TAG, "Received Monero address from ${message.senderPeerID}: $address")
+        } else {
+            meshDelegateHandler.didReceiveMessage(message)
+        }
     }
     
     override fun didUpdatePeerList(peers: List<String>) {
         meshDelegateHandler.didUpdatePeerList(peers)
+        
+        // Automatically share our Monero address when new peers connect
+        val myMoneroAddress = dataManager.loadMoneroAddress()
+        peers.forEach { peerID ->
+            if (!_peerMoneroAddresses.value.containsKey(peerID)) {
+                meshService.sendMessage("MY_MONERO_ADDRESS:$myMoneroAddress", emptyList(), null)
+                Log.d(TAG, "Shared Monero address with $peerID")
+            }
+        }
     }
     
     override fun didReceiveChannelLeave(channel: String, fromPeer: String) {

@@ -508,6 +508,7 @@ private fun shareAddressWithConnectedPeers(
     connectedPeers.forEach { peerName ->
         // Send address sharing message to each connected peer
         val addressMessage = "[MONERO_ADDRESS]$walletAddress"
+        Log.d(TAG, "Sharing wallet address ($walletAddress) with peer: $peerName")
         viewModel.sendDirectMessage(peerName, addressMessage)
     }
 }

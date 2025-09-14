@@ -13,6 +13,23 @@ class DataManager(private val context: Context) {
     
     companion object {
         private const val TAG = "DataManager"
+        private const val KEY_MY_MONERO_ADDRESS = "my_monero_address"
+    }
+
+    fun saveMoneroAddress(address: String) {
+        prefs.edit().putString(KEY_MY_MONERO_ADDRESS, address).apply()
+        Log.d(TAG, "Saved Monero address: $address")
+    }
+
+    fun loadMoneroAddress(): String? {
+        val address = prefs.getString(KEY_MY_MONERO_ADDRESS, null)
+        Log.d(TAG, "Loaded Monero address: $address")
+        return address
+    }
+
+    fun clearMoneroAddress() {
+        prefs.edit().remove(KEY_MY_MONERO_ADDRESS).apply()
+        Log.d(TAG, "Cleared Monero address")
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences("bitchat_prefs", Context.MODE_PRIVATE)
