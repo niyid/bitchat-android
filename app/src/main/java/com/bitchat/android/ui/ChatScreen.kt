@@ -75,15 +75,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val showAppInfo by viewModel.showAppInfo.observeAsState(false)
 
     // Monero-related state
-    var walletSuite by remember { mutableStateOf<WalletSuite?>(null) }
-    var moneroMessageHandler by remember { mutableStateOf<MoneroMessageHandler?>(null) }
-    var isMoneroModeActive by remember { mutableStateOf(false) }
-    var currentBalance by remember { mutableStateOf("0.000000") }
-    var isSyncing by remember { mutableStateOf(false) }
-    var syncProgress by remember { mutableStateOf(0) }
-    var walletStatusMessage by remember { mutableStateOf("Wallet initializing...") }
-    var isWalletReady by remember { mutableStateOf(false) }
-    var peerMoneroAddresses by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var walletSuite = viewModel.walletSuite
+    var moneroMessageHandler = viewModel.moneroMessageHandler
+    var isMoneroModeActive = viewModel.isMoneroModeActive
+    var currentBalance = viewModel.currentBalance
+    var isSyncing = viewModel.isSyncing
+    var syncProgress = viewModel.syncProgress
+    var walletStatusMessage = viewModel.walletStatusMessage
+    var isWalletReady = viewModel.isWalletReady
+    var peerMoneroAddresses = viewModel.peerMoneroAddresses
     var myWalletAddress by remember { mutableStateOf<String?>(null) }
 
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
