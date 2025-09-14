@@ -146,7 +146,6 @@ public class Wallet {
     public native boolean isTrustedDaemon();
     public native long getDaemonConnectionTimeout();
     public native void setDaemonConnectionTimeout(long timeout);
-    public native void setDaemonLogin(String username, String password);
 
     // Daemon operations
     public native boolean init(String daemonAddress);

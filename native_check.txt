@@ -1,0 +1,1642 @@
+Analyzing native functions in package: com.m2049r.xmrwallet
+Looking for Java files in: app/src/main/java/com/m2049r/xmrwallet
+Checking against library: app/src/main/jniLibs/arm64-v8a/libmonerujo.so
+
+Extracting symbols from app/src/main/jniLibs/arm64-v8a/libmonerujo.so...
+Found 11317 symbols in library
+
+Processing: Helper
+  [INFO] No native methods found
+
+Processing: BluetoothService
+  [INFO] No native methods found
+
+Processing: Ledger
+  Method: connect (line 35)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_connect
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      BIO_connect
+      BIO_do_connect_retry
+      BIO_new_connect
+
+  Method: disconnect (line 36)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_disconnect
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN2hw4core14device_default10disconnectEv
+      _ZN2hw6ledger13device_ledger10disconnectEv
+      _ZN2hw8sidekick15device_sidekick10disconnectEv
+
+  Method: isConnected (line 37)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_isConnected
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_isConnected
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_isConnectedJ
+    [MISSING]   Or C++ method containing: isConnected
+
+  Method: getDeviceState (line 38)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getDeviceState
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getDeviceState
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getDeviceStateJ
+    [MISSING]   Or C++ method containing: getDeviceState
+
+  Method: getDescriptor (line 39)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getDescriptor
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getDescriptor
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getDescriptorJ
+    [MISSING]   Or C++ method containing: getDescriptor
+
+  Method: getDeviceInfo (line 40)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getDeviceInfo
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getDeviceInfo
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getDeviceInfoJ
+    [MISSING]   Or C++ method containing: getDeviceInfo
+
+  Method: getFirmwareVersion (line 41)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getFirmwareVersion
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getFirmwareVersion
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getFirmwareVersionJ
+    [MISSING]   Or C++ method containing: getFirmwareVersion
+
+  Method: openApp (line 42)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_openApp
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_openApp
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_openAppJ
+    [MISSING]   Or C++ method containing: openApp
+
+  Method: closeApp (line 43)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_closeApp
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_closeApp
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_closeAppJ
+    [MISSING]   Or C++ method containing: closeApp
+
+  Method: checkDevice (line 46)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_checkDevice
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_checkDevice
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_checkDeviceJ
+    [MISSING]   Or C++ method containing: checkDevice
+
+  Method: authenticateDevice (line 47)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_authenticateDevice
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_authenticateDevice
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_authenticateDeviceJ
+    [MISSING]   Or C++ method containing: authenticateDevice
+
+  Method: getPublicAddress (line 48)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getPublicAddress
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getPublicAddress
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getPublicAddressJ
+    [MISSING]   Or C++ method containing: getPublicAddress
+
+  Method: getPublicViewKey (line 49)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getPublicViewKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getPublicViewKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getPublicViewKeyJ
+    [MISSING]   Or C++ method containing: getPublicViewKey
+
+  Method: getPublicSpendKey (line 50)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getPublicSpendKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getPublicSpendKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getPublicSpendKeyJ
+    [MISSING]   Or C++ method containing: getPublicSpendKey
+
+  Method: initTransaction (line 53)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_initTransaction
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_initTransaction
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_initTransactionJ
+    [MISSING]   Or C++ method containing: initTransaction
+
+  Method: addTransactionInput (line 54)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_addTransactionInput
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_addTransactionInput
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_addTransactionInputJ
+    [MISSING]   Or C++ method containing: addTransactionInput
+
+  Method: setTransactionOutput (line 55)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_setTransactionOutput
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_setTransactionOutput
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_setTransactionOutputJ
+    [MISSING]   Or C++ method containing: setTransactionOutput
+
+  Method: finalizeTransaction (line 56)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_finalizeTransaction
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_finalizeTransaction
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_finalizeTransactionJ
+    [MISSING]   Or C++ method containing: finalizeTransaction
+
+  Method: signTransaction (line 57)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_signTransaction
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_signTransaction
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_signTransactionJ
+    [MISSING]   Or C++ method containing: signTransaction
+
+  Method: verifyTransaction (line 58)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_verifyTransaction
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_verifyTransaction
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_verifyTransactionJ
+    [MISSING]   Or C++ method containing: verifyTransaction
+
+  Method: exportPrivateViewKey (line 61)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_exportPrivateViewKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_exportPrivateViewKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_exportPrivateViewKeyJ
+    [MISSING]   Or C++ method containing: exportPrivateViewKey
+
+  Method: importPrivateViewKey (line 62)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_importPrivateViewKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_importPrivateViewKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_importPrivateViewKeyJ
+    [MISSING]   Or C++ method containing: importPrivateViewKey
+
+  Method: generateKeyImage (line 63)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_generateKeyImage
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_generateKeyImage
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_generateKeyImageJ
+    [MISSING]   Or C++ method containing: generateKeyImage
+
+  Method: verifyKeyImage (line 64)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_verifyKeyImage
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_verifyKeyImage
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_verifyKeyImageJ
+    [MISSING]   Or C++ method containing: verifyKeyImage
+
+  Method: generateSubaddress (line 67)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_generateSubaddress
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_generateSubaddress
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_generateSubaddressJ
+    [MISSING]   Or C++ method containing: generateSubaddress
+
+  Method: verifySubaddress (line 68)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_verifySubaddress
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_verifySubaddress
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_verifySubaddressJ
+    [MISSING]   Or C++ method containing: verifySubaddress
+
+  Method: getSubaddressKeys (line 69)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getSubaddressKeys
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getSubaddressKeys
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getSubaddressKeysJ
+    [MISSING]   Or C++ method containing: getSubaddressKeys
+
+  Method: isMultisigSupported (line 72)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_isMultisigSupported
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_isMultisigSupported
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_isMultisigSupportedJ
+    [MISSING]   Or C++ method containing: isMultisigSupported
+
+  Method: generateMultisigKeys (line 73)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_generateMultisigKeys
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_generateMultisigKeys
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_generateMultisigKeysJ
+    [MISSING]   Or C++ method containing: generateMultisigKeys
+
+  Method: signMultisigTransaction (line 74)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_signMultisigTransaction
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_signMultisigTransaction
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_signMultisigTransactionJ
+    [MISSING]   Or C++ method containing: signMultisigTransaction
+
+  Method: testConnection (line 77)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_testConnection
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_testConnection
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_testConnectionJ
+    [MISSING]   Or C++ method containing: testConnection
+
+  Method: getLastError (line 78)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getLastError
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getLastError
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getLastErrorJ
+    [MISSING]   Or C++ method containing: getLastError
+
+  Method: getLastErrorString (line 79)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getLastErrorString
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getLastErrorString
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getLastErrorStringJ
+    [MISSING]   Or C++ method containing: getLastErrorString
+
+  Method: clearError (line 80)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_clearError
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_clearError
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_clearErrorJ
+    [MISSING]   Or C++ method containing: clearError
+
+  Method: lockDevice (line 83)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_lockDevice
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_lockDevice
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_lockDeviceJ
+    [MISSING]   Or C++ method containing: lockDevice
+
+  Method: unlockDevice (line 84)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_unlockDevice
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_unlockDevice
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_unlockDeviceJ
+    [MISSING]   Or C++ method containing: unlockDevice
+
+  Method: changePin (line 85)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_changePin
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_changePin
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_changePinJ
+    [MISSING]   Or C++ method containing: changePin
+
+  Method: factoryReset (line 86)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_factoryReset
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_factoryReset
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_factoryResetJ
+    [MISSING]   Or C++ method containing: factoryReset
+
+  Method: isFirmwareUpdateAvailable (line 89)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_isFirmwareUpdateAvailable
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_isFirmwareUpdateAvailable
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_isFirmwareUpdateAvailableJ
+    [MISSING]   Or C++ method containing: isFirmwareUpdateAvailable
+
+  Method: updateFirmware (line 90)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_updateFirmware
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_updateFirmware
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_updateFirmwareJ
+    [MISSING]   Or C++ method containing: updateFirmware
+
+  Method: getDisplaySetting (line 93)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getDisplaySetting
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getDisplaySetting
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getDisplaySettingJ
+    [MISSING]   Or C++ method containing: getDisplaySetting
+
+  Method: setDisplaySetting (line 94)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_setDisplaySetting
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_setDisplaySetting
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_setDisplaySettingJ
+    [MISSING]   Or C++ method containing: setDisplaySetting
+
+  Method: getTimeout (line 95)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getTimeout
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getTimeout
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getTimeoutJ
+    [MISSING]   Or C++ method containing: getTimeout
+
+  Method: setTimeout (line 96)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_setTimeout
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_setTimeout
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_setTimeoutJ
+    [MISSING]   Or C++ method containing: setTimeout
+
+  Method: exchangeApdu (line 99)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_exchangeApdu
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_exchangeApdu
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_exchangeApduJ
+    [MISSING]   Or C++ method containing: exchangeApdu
+
+  Method: sendCommand (line 100)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_sendCommand
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_sendCommand
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_sendCommandJ
+    [MISSING]   Or C++ method containing: sendCommand
+
+  Method: setNativeCallback (line 118)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_setNativeCallback
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_setNativeCallback
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_setNativeCallbackJ
+    [MISSING]   Or C++ method containing: setNativeCallback
+
+  Method: listDevices (line 152)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_listDevices
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_listDevices
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_listDevicesJ
+    [MISSING]   Or C++ method containing: listDevices
+
+  Method: getDeviceDescriptors (line 153)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_getDeviceDescriptors
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_getDeviceDescriptors
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_getDeviceDescriptorsJ
+    [MISSING]   Or C++ method containing: getDeviceDescriptors
+
+  Method: isLedgerDevice (line 154)
+    JNI name: Java_com_m2049r_xmrwallet_Ledger_isLedgerDevice
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Ledger_isLedgerDevice
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Ledger_isLedgerDeviceJ
+    [MISSING]   Or C++ method containing: isLedgerDevice
+
+Processing: AddressBook
+  Method: getAll (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBook_getAll
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero14SubaddressImpl6getAllEv
+      _ZNK6Monero15AddressBookImpl6getAllEv
+      _ZNK6Monero21SubaddressAccountImpl6getAllEv
+
+  Method: addRow (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBook_addRow
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero14SubaddressImpl6addRowEjRKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+      _ZN6Monero15AddressBookImpl6addRowERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_
+      _ZN6Monero21SubaddressAccountImpl6addRowERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: deleteRow (line 15)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBook_deleteRow
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero15AddressBookImpl9deleteRowEm
+
+  Method: refresh (line 16)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBook_refresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Coins_refresh
+      Java_com_m2049r_xmrwallet_model_TransactionHistory_refreshJ
+      Java_com_m2049r_xmrwallet_model_Wallet_refresh
+
+  Method: errorString (line 17)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBook_errorString
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl11errorStringEv
+      _ZNK6Monero17WalletManagerImpl11errorStringEv
+      _ZNK6Monero22PendingTransactionImpl11errorStringEv
+
+  Method: lookupPaymentID (line 18)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBook_lookupPaymentID
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero15AddressBookImpl15lookupPaymentIDERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+Processing: AddressBookRow
+  Method: getAddress (line 11)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookRow_getAddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAddressJ
+
+  Method: getPaymentId (line 12)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookRow_getPaymentId
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getPaymentIdFromAddress
+
+  Method: getDescription (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookRow_getDescription
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_AddressBookRow_getDescription
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_AddressBookRow_getDescriptionJ
+    [MISSING]   Or C++ method containing: getDescription
+
+  Method: getRowId (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookRow_getRowId
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_AddressBookRow_getRowId
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_AddressBookRow_getRowIdJ
+    [MISSING]   Or C++ method containing: getRowId
+
+Processing: CoinsInfo
+  Method: getBlockHeight (line 11)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getBlockHeight
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getBlockHeight
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getBlockHeightJ
+    [MISSING]   Or C++ method containing: getBlockHeight
+
+  Method: getHash (line 12)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getHash
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getHash
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getHashJ
+    [MISSING]   Or C++ method containing: getHash
+
+  Method: getInternalOutputIndex (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getInternalOutputIndex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getInternalOutputIndex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getInternalOutputIndexJ
+    [MISSING]   Or C++ method containing: getInternalOutputIndex
+
+  Method: getGlobalOutputIndex (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getGlobalOutputIndex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getGlobalOutputIndex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getGlobalOutputIndexJ
+    [MISSING]   Or C++ method containing: getGlobalOutputIndex
+
+  Method: getSpent (line 15)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getSpent
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getSpent
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getSpentJ
+    [MISSING]   Or C++ method containing: getSpent
+
+  Method: getFrozen (line 16)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getFrozen
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getFrozen
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getFrozenJ
+    [MISSING]   Or C++ method containing: getFrozen
+
+  Method: getSpentHeight (line 17)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getSpentHeight
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getSpentHeight
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getSpentHeightJ
+    [MISSING]   Or C++ method containing: getSpentHeight
+
+  Method: getAmount (line 18)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getAmount
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getAmount
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromDouble
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromString
+
+  Method: getRct (line 19)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getRct
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getRct
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getRctJ
+    [MISSING]   Or C++ method containing: getRct
+
+  Method: getKeyImage (line 20)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getKeyImage
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getKeyImage
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getKeyImageJ
+    [MISSING]   Or C++ method containing: getKeyImage
+
+  Method: getUnlockTime (line 21)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getUnlockTime
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getUnlockTime
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getUnlockTimeJ
+    [MISSING]   Or C++ method containing: getUnlockTime
+
+  Method: getUnlocked (line 22)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getUnlocked
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getUnlockedBalance
+      Java_com_m2049r_xmrwallet_model_Wallet_getUnlockedBalanceAll
+
+  Method: getPubKey (line 23)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getPubKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getPubKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getPubKeyJ
+    [MISSING]   Or C++ method containing: getPubKey
+
+  Method: getSubaddrAccount (line 24)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getSubaddrAccount
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getSubaddrAccount
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getSubaddrAccountJ
+    [MISSING]   Or C++ method containing: getSubaddrAccount
+
+  Method: getSubaddrIndex (line 25)
+    JNI name: Java_com_m2049r_xmrwallet_CoinsInfo_getSubaddrIndex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_CoinsInfo_getSubaddrIndex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_CoinsInfo_getSubaddrIndexJ
+    [MISSING]   Or C++ method containing: getSubaddrIndex
+
+Processing: WalletManager
+  Method: createWalletJ (line 32)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_createWalletJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_createWalletJ
+
+  Method: openWalletJ (line 34)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_openWalletJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_openWalletJ
+
+  Method: recoveryWalletJ (line 36)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_recoveryWalletJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_recoveryWalletJ
+
+  Method: verifyWalletPasswordJ (line 39)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_verifyWalletPasswordJ
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_WalletManager_verifyWalletPasswordJ
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_WalletManager_verifyWalletPasswordJJ
+    [MISSING]   Or C++ method containing: verifyWalletPasswordJ
+
+  Method: getErrorStringJ (line 41)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_getErrorStringJ
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_WalletManager_getErrorStringJ
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_WalletManager_getErrorStringJJ
+    [MISSING]   Or C++ method containing: getErrorStringJ
+
+  Method: findWalletsJ (line 43)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_findWalletsJ
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_WalletManager_findWalletsJ
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_WalletManager_findWalletsJJ
+    [MISSING]   Or C++ method containing: findWalletsJ
+
+  Method: setDaemonAddressJ (line 45)
+    JNI name: Java_com_m2049r_xmrwallet_WalletManager_setDaemonAddressJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_setDaemonAddressJ
+
+Processing: SubaddressBook
+  Method: getAll (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_SubaddressBook_getAll
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero14SubaddressImpl6getAllEv
+      _ZNK6Monero15AddressBookImpl6getAllEv
+      _ZNK6Monero21SubaddressAccountImpl6getAllEv
+
+  Method: addRow (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_SubaddressBook_addRow
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero14SubaddressImpl6addRowEjRKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+      _ZN6Monero15AddressBookImpl6addRowERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_
+      _ZN6Monero21SubaddressAccountImpl6addRowERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: deleteRow (line 15)
+    JNI name: Java_com_m2049r_xmrwallet_SubaddressBook_deleteRow
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero15AddressBookImpl9deleteRowEm
+
+  Method: refresh (line 16)
+    JNI name: Java_com_m2049r_xmrwallet_SubaddressBook_refresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Coins_refresh
+      Java_com_m2049r_xmrwallet_model_TransactionHistory_refreshJ
+      Java_com_m2049r_xmrwallet_model_Wallet_refresh
+
+  Method: errorString (line 17)
+    JNI name: Java_com_m2049r_xmrwallet_SubaddressBook_errorString
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl11errorStringEv
+      _ZNK6Monero17WalletManagerImpl11errorStringEv
+      _ZNK6Monero22PendingTransactionImpl11errorStringEv
+
+  Method: lookupPaymentID (line 18)
+    JNI name: Java_com_m2049r_xmrwallet_SubaddressBook_lookupPaymentID
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero15AddressBookImpl15lookupPaymentIDERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+Processing: WalletListener
+  [INFO] No native methods found
+
+Processing: AddressBookEntry
+  Method: getIndex (line 12)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookEntry_getIndex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_AddressBookEntry_getIndex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_AddressBookEntry_getIndexJ
+    [MISSING]   Or C++ method containing: getIndex
+
+  Method: getAddress (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookEntry_getAddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAddressJ
+
+  Method: getDescription (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookEntry_getDescription
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_AddressBookEntry_getDescription
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_AddressBookEntry_getDescriptionJ
+    [MISSING]   Or C++ method containing: getDescription
+
+  Method: getPaymentId (line 15)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookEntry_getPaymentId
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getPaymentIdFromAddress
+
+  Method: dispose (line 18)
+    JNI name: Java_com_m2049r_xmrwallet_AddressBookEntry_dispose
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_disposeTransaction
+      _ZN6Monero10WalletImpl18disposeTransactionEPNS_18PendingTransactionE
+
+Processing: Transfer
+  Method: getAddress (line 10)
+    JNI name: Java_com_m2049r_xmrwallet_Transfer_getAddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAddressJ
+
+  Method: getAmount (line 11)
+    JNI name: Java_com_m2049r_xmrwallet_Transfer_getAmount
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getAmount
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromDouble
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromString
+
+Processing: TransactionHistory
+  Method: count (line 12)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionHistory_count
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      async_wait_ctx_reset_counts
+      cfg_count_numbers
+      count_slabhash_entries
+
+  Method: transaction (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionHistory_transaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      transactionInfoArrayList
+      _Z23get_transaction_versionRKNSt6__ndk112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEE
+      _ZN10cryptonote10Blockchain17return_tx_to_poolERNSt6__ndk16vectorINS1_4pairINS_11transactionENS1_12basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEEENS8_ISB_EEEE
+
+  Method: transaction (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionHistory_transaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      transactionInfoArrayList
+      _Z23get_transaction_versionRKNSt6__ndk112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEE
+      _ZN10cryptonote10Blockchain17return_tx_to_poolERNSt6__ndk16vectorINS1_4pairINS_11transactionENS1_12basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEEENS8_ISB_EEEE
+
+  Method: getAll (line 15)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionHistory_getAll
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero14SubaddressImpl6getAllEv
+      _ZNK6Monero15AddressBookImpl6getAllEv
+      _ZNK6Monero21SubaddressAccountImpl6getAllEv
+
+  Method: refresh (line 16)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionHistory_refresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Coins_refresh
+      Java_com_m2049r_xmrwallet_model_TransactionHistory_refreshJ
+      Java_com_m2049r_xmrwallet_model_Wallet_refresh
+
+  Method: setTxNote (line 17)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionHistory_setTxNote
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero22TransactionHistoryImpl9setTxNoteERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_
+
+Processing: Subaddress
+  Method: getAddress (line 11)
+    JNI name: Java_com_m2049r_xmrwallet_Subaddress_getAddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAddressJ
+
+  Method: getLabel (line 12)
+    JNI name: Java_com_m2049r_xmrwallet_Subaddress_getLabel
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Subaddress_getLabel
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Subaddress_getLabelJ
+    [MISSING]   Or C++ method containing: getLabel
+
+  Method: getAddressIndex (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_Subaddress_getAddressIndex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Subaddress_getAddressIndex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Subaddress_getAddressIndexJ
+    [MISSING]   Or C++ method containing: getAddressIndex
+
+  Method: isUsed (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_Subaddress_isUsed
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Subaddress_isUsed
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Subaddress_isUsedJ
+    [MISSING]   Or C++ method containing: isUsed
+
+Processing: TransactionInfo
+  Method: getDirection (line 24)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getDirection
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getDirection
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getDirectionJ
+    [MISSING]   Or C++ method containing: getDirection
+
+  Method: isPending (line 25)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_isPending
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero19TransactionInfoImpl9isPendingEv
+
+  Method: isFailed (line 26)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_isFailed
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero19TransactionInfoImpl8isFailedEv
+
+  Method: getAmount (line 27)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getAmount
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getAmount
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromDouble
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromString
+
+  Method: getFee (line 28)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getFee
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getFee
+
+  Method: getBlockHeight (line 29)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getBlockHeight
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getBlockHeight
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getBlockHeightJ
+    [MISSING]   Or C++ method containing: getBlockHeight
+
+  Method: getSubaddressIndex (line 30)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getSubaddressIndex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getSubaddressIndex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getSubaddressIndexJ
+    [MISSING]   Or C++ method containing: getSubaddressIndex
+
+  Method: getSubaddressAccount (line 31)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getSubaddressAccount
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getSubaddressAccount
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getSubaddressAccountJ
+    [MISSING]   Or C++ method containing: getSubaddressAccount
+
+  Method: getLabel (line 32)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getLabel
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getLabel
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getLabelJ
+    [MISSING]   Or C++ method containing: getLabel
+
+  Method: getConfirmations (line 33)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getConfirmations
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getConfirmations
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getConfirmationsJ
+    [MISSING]   Or C++ method containing: getConfirmations
+
+  Method: getUnlockTime (line 34)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getUnlockTime
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getUnlockTime
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getUnlockTimeJ
+    [MISSING]   Or C++ method containing: getUnlockTime
+
+  Method: getHash (line 35)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getHash
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getHash
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getHashJ
+    [MISSING]   Or C++ method containing: getHash
+
+  Method: getTimestamp (line 36)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getTimestamp
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getTimestamp
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getTimestampJ
+    [MISSING]   Or C++ method containing: getTimestamp
+
+  Method: getPaymentId (line 37)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getPaymentId
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getPaymentIdFromAddress
+
+  Method: getTransfers (line 38)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getTransfers
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getTransfers
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getTransfersJ
+    [MISSING]   Or C++ method containing: getTransfers
+
+  Method: getNote (line 39)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getNote
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getNote
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getNoteJ
+    [MISSING]   Or C++ method containing: getNote
+
+  Method: getTransferType (line 40)
+    JNI name: Java_com_m2049r_xmrwallet_TransactionInfo_getTransferType
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_TransactionInfo_getTransferType
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_TransactionInfo_getTransferTypeJ
+    [MISSING]   Or C++ method containing: getTransferType
+
+Processing: NetworkType
+  [INFO] No native methods found
+
+Processing: Wallet
+  Method: walletExists (line 54)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_walletExists
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_walletExists
+      _ZN6Monero17WalletManagerImpl12walletExistsERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: openWallet (line 55)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_openWallet
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_openWalletJ
+      _ZN6Monero17WalletManagerImpl10openWalletERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_NS_11NetworkTypeEmPNS_14WalletListenerE
+
+  Method: createWalletJ (line 56)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_createWalletJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_createWalletJ
+
+  Method: recoveryWallet (line 57)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_recoveryWallet
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_recoveryWalletJ
+      _ZN6Monero17WalletManagerImpl14recoveryWalletERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_NS_11NetworkTypeEm
+      _ZN6Monero17WalletManagerImpl14recoveryWalletERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_NS_11NetworkTypeEmmS9_
+
+  Method: createWalletFromKeys (line 58)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_createWalletFromKeys
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_createWalletFromKeysJ
+      _ZN6Monero17WalletManagerImpl20createWalletFromKeysERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_NS_11NetworkTypeEmS9_S9_S9_
+      _ZN6Monero17WalletManagerImpl20createWalletFromKeysERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_NS_11NetworkTypeEmS9_S9_S9_m
+
+  Method: createWalletFromDevice (line 59)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_createWalletFromDevice
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_createWalletFromDeviceJ
+      _ZN6Monero17WalletManagerImpl22createWalletFromDeviceERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_NS_11NetworkTypeES9_mS9_mPNS_14WalletListenerE
+
+  Method: getSeed (line 62)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSeed
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSeed
+      Java_com_m2049r_xmrwallet_model_Wallet_getSeedLanguage
+      _ZNK6Monero10WalletImpl15getSeedLanguageEv
+
+  Method: getSeed (line 63)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSeed
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSeed
+      Java_com_m2049r_xmrwallet_model_Wallet_getSeedLanguage
+      _ZNK6Monero10WalletImpl15getSeedLanguageEv
+
+  Method: getSeedLanguage (line 64)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSeedLanguage
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSeedLanguage
+      _ZNK6Monero10WalletImpl15getSeedLanguageEv
+
+  Method: setSeedLanguage (line 65)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setSeedLanguage
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setSeedLanguage
+      _ZN6Monero10WalletImpl15setSeedLanguageERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: getStatusJ (line 66)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getStatusJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getStatusJ
+      Java_com_m2049r_xmrwallet_model_Wallet_getStatusJ
+
+  Method: statusWithErrorString (line 67)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_statusWithErrorString
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_statusWithErrorString
+      _ZNK6Monero10WalletImpl21statusWithErrorStringERiRNSt6__ndk112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEE
+
+  Method: setPassword (line 68)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setPassword
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setPassword
+      _ZN6Monero10WalletImpl11setPasswordERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: getAddress (line 69)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAddressJ
+
+  Method: getPath (line 70)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getPath
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getPath
+
+  Method: getNetworkType (line 71)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getNetworkType
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getNetworkType
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getNetworkTypeJ
+    [MISSING]   Or C++ method containing: getNetworkType
+
+  Method: getSecretViewKey (line 72)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSecretViewKey
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSecretViewKey
+
+  Method: getSecretSpendKey (line 73)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSecretSpendKey
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSecretSpendKey
+
+  Method: getPublicViewKey (line 74)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getPublicViewKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getPublicViewKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getPublicViewKeyJ
+    [MISSING]   Or C++ method containing: getPublicViewKey
+
+  Method: getPublicSpendKey (line 75)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getPublicSpendKey
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getPublicSpendKey
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getPublicSpendKeyJ
+    [MISSING]   Or C++ method containing: getPublicSpendKey
+
+  Method: getBalance (line 76)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getBalance
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getBalance
+      Java_com_m2049r_xmrwallet_model_Wallet_getBalanceAll
+
+  Method: getBalance (line 77)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getBalance
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getBalance
+      Java_com_m2049r_xmrwallet_model_Wallet_getBalanceAll
+
+  Method: getUnlockedBalance (line 78)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getUnlockedBalance
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getUnlockedBalance
+      Java_com_m2049r_xmrwallet_model_Wallet_getUnlockedBalanceAll
+
+  Method: getUnlockedBalance (line 79)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getUnlockedBalance
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getUnlockedBalance
+      Java_com_m2049r_xmrwallet_model_Wallet_getUnlockedBalanceAll
+
+  Method: getBlockChainHeight (line 80)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getBlockChainHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getBlockChainHeight
+
+  Method: getApproximateBlockChainHeight (line 81)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getApproximateBlockChainHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getApproximateBlockChainHeight
+
+  Method: getDaemonBlockChainHeight (line 82)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getDaemonBlockChainHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getDaemonBlockChainHeight
+
+  Method: getDaemonBlockChainTargetHeight (line 83)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getDaemonBlockChainTargetHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getDaemonBlockChainTargetHeight
+
+  Method: isSynchronized (line 84)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_isSynchronized
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_isSynchronizedJ
+
+  Method: getDisplayAmount (line 85)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getDisplayAmount
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getDisplayAmount
+
+  Method: getAmountFromString (line 86)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAmountFromString
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromString
+
+  Method: getAmountFromDouble (line 87)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAmountFromDouble
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getAmountFromDouble
+
+  Method: setRefreshFromBlockHeight (line 88)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setRefreshFromBlockHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl25setRefreshFromBlockHeightEm
+
+  Method: getRefreshFromBlockHeight (line 89)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getRefreshFromBlockHeight
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getRefreshFromBlockHeight
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getRefreshFromBlockHeightJ
+    [MISSING]   Or C++ method containing: getRefreshFromBlockHeight
+
+  Method: setRestoreHeight (line 90)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setRestoreHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setRestoreHeight
+
+  Method: getRestoreHeight (line 91)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getRestoreHeight
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getRestoreHeight
+
+  Method: refreshHistory (line 92)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_refreshHistory
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_refreshHistory
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_refreshHistoryJ
+    [MISSING]   Or C++ method containing: refreshHistory
+
+  Method: getDeviceType (line 95)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getDeviceType
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getDeviceTypeJ
+      _ZNK6Monero10WalletImpl13getDeviceTypeEv
+
+  Method: setDeviceType (line 96)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setDeviceType
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_setDeviceType
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_setDeviceTypeJ
+    [MISSING]   Or C++ method containing: setDeviceType
+
+  Method: isHardwareWallet (line 97)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_isHardwareWallet
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_isHardwareWallet
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_isHardwareWalletJ
+    [MISSING]   Or C++ method containing: isHardwareWallet
+
+  Method: refresh (line 100)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_refresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Coins_refresh
+      Java_com_m2049r_xmrwallet_model_TransactionHistory_refreshJ
+      Java_com_m2049r_xmrwallet_model_Wallet_refresh
+
+  Method: refreshAsync (line 101)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_refreshAsync
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_refreshAsync
+      _ZN6Monero10WalletImpl12refreshAsyncEv
+
+  Method: startRefresh (line 102)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_startRefresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_startRefresh
+      _ZN6Monero10WalletImpl12startRefreshEv
+
+  Method: pauseRefresh (line 103)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_pauseRefresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_pauseRefresh
+      _ZN6Monero10WalletImpl12pauseRefreshEv
+
+  Method: isRefreshing (line 104)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_isRefreshing
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_isRefreshing
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_isRefreshingJ
+    [MISSING]   Or C++ method containing: isRefreshing
+
+  Method: submitTransaction (line 107)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_submitTransaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl17submitTransactionERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: createTransaction (line 108)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_createTransaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_createTransactionJ
+      Java_com_m2049r_xmrwallet_model_Wallet_createTransactionMultDest
+      _ZN6Monero10WalletImpl17createTransactionERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_NS_8optionalImEEjNS_18PendingTransaction8PriorityEjNS1_3setIjNS1_4lessIjEENS5_IjEEEE
+
+  Method: createSweepTransaction (line 109)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_createSweepTransaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_createSweepTransaction
+
+  Method: createSweepUnmixableTransaction (line 110)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_createSweepUnmixableTransaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_createSweepUnmixableTransactionJ
+      _ZN6Monero10WalletImpl31createSweepUnmixableTransactionEv
+
+  Method: disposeTransaction (line 111)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_disposeTransaction
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_disposeTransaction
+      _ZN6Monero10WalletImpl18disposeTransactionEPNS_18PendingTransactionE
+
+  Method: getHistory (line 112)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getHistory
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getHistoryJ
+
+  Method: setUserNote (line 113)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setUserNote
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setUserNote
+      _ZN6Monero10WalletImpl11setUserNoteERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_
+
+  Method: getUserNote (line 114)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getUserNote
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getUserNote
+      _ZNK6Monero10WalletImpl11getUserNoteERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: getTxKey (line 115)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getTxKey
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getTxKey
+      _ZNK6Monero10WalletImpl8getTxKeyERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: checkTxKey (line 116)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_checkTxKey
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl10checkTxKeyERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES7_S9_RmRbSA_
+
+  Method: getTxProof (line 117)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getTxProof
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl10getTxProofERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_
+
+  Method: checkTxProof (line 118)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_checkTxProof
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl12checkTxProofERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_S9_RbRmSA_SB_
+
+  Method: getSpendProof (line 119)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSpendProof
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl13getSpendProofERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_
+
+  Method: checkSpendProof (line 120)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_checkSpendProof
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl15checkSpendProofERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_Rb
+
+  Method: getReserveProof (line 121)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getReserveProof
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl15getReserveProofEbjmRKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: checkReserveProof (line 122)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_checkReserveProof
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl17checkReserveProofERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_S9_RbRmSB_
+
+  Method: getSubaddress (line 125)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSubaddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSubaddressLabel
+      _ZNK6Monero10WalletImpl18getSubaddressLabelEjj
+
+  Method: getSubaddressBook (line 126)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSubaddressBook
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getSubaddressBook
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getSubaddressBookJ
+    [MISSING]   Or C++ method containing: getSubaddressBook
+
+  Method: addSubaddress (line 127)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_addSubaddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_addSubaddress
+      _ZN6Monero10WalletImpl13addSubaddressEjRKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+      _ZN6Monero10WalletImpl20addSubaddressAccountERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: addAccount (line 130)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_addAccount
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_addAccount
+
+  Method: getSubaddressLabel (line 131)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getSubaddressLabel
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getSubaddressLabel
+      _ZNK6Monero10WalletImpl18getSubaddressLabelEjj
+
+  Method: setSubaddressLabel (line 132)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setSubaddressLabel
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setSubaddressLabel
+      _ZN6Monero10WalletImpl18setSubaddressLabelEjjRKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: getNumAccounts (line 133)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getNumAccounts
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getNumAccounts
+
+  Method: getNumSubaddresses (line 134)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getNumSubaddresses
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getNumSubaddresses
+
+  Method: getAccountLabel (line 135)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAccountLabel
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getAccountLabel
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getAccountLabelJ
+    [MISSING]   Or C++ method containing: getAccountLabel
+
+  Method: getAccountLabel (line 136)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAccountLabel
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getAccountLabel
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getAccountLabelJ
+    [MISSING]   Or C++ method containing: getAccountLabel
+
+  Method: setAccountLabel (line 137)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setAccountLabel
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_setAccountLabel
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_setAccountLabelJ
+    [MISSING]   Or C++ method containing: setAccountLabel
+
+  Method: getAddressBook (line 140)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAddressBook
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getAddressBook
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getAddressBookJ
+    [MISSING]   Or C++ method containing: getAddressBook
+
+  Method: connectToDaemon (line 143)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_connectToDaemon
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl15connectToDaemonEv
+
+  Method: getConnectionStatus (line 144)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getConnectionStatus
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getConnectionStatusJ
+
+  Method: setTrustedDaemon (line 145)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setTrustedDaemon
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl16setTrustedDaemonEb
+
+  Method: isTrustedDaemon (line 146)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_isTrustedDaemon
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_isTrustedDaemon
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_isTrustedDaemonJ
+    [MISSING]   Or C++ method containing: isTrustedDaemon
+
+  Method: getDaemonConnectionTimeout (line 147)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getDaemonConnectionTimeout
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getDaemonConnectionTimeout
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getDaemonConnectionTimeoutJ
+    [MISSING]   Or C++ method containing: getDaemonConnectionTimeout
+
+  Method: setDaemonConnectionTimeout (line 148)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setDaemonConnectionTimeout
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_setDaemonConnectionTimeout
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_setDaemonConnectionTimeoutJ
+    [MISSING]   Or C++ method containing: setDaemonConnectionTimeout
+
+  Method: setDaemonLogin (line 149)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setDaemonLogin
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_setDaemonLogin
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_setDaemonLoginJ
+    [MISSING]   Or C++ method containing: setDaemonLogin
+
+  Method: init (line 152)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_init
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      addr_tree_init
+      addr_tree_init_parents
+      addr_tree_init_parents_node
+
+  Method: init (line 153)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_init
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      addr_tree_init
+      addr_tree_init_parents
+      addr_tree_init_parents_node
+
+  Method: init (line 154)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_init
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      addr_tree_init
+      addr_tree_init_parents
+      addr_tree_init_parents_node
+
+  Method: close (line 157)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_close
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      BIO_closesocket
+      comm_point_close
+      dtls1_close_construct_packet
+
+  Method: store (line 158)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_store
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      anchor_store_str
+      CT_POLICY_EVAL_CTX_get0_log_store
+      dns_cache_store
+
+  Method: store (line 159)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_store
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      anchor_store_str
+      CT_POLICY_EVAL_CTX_get0_log_store
+      dns_cache_store
+
+  Method: getFilename (line 160)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getFilename
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getFilename
+      _ZN2el7Loggers23getFilenameCommonPrefixEv
+
+  Method: rescanBlockchain (line 161)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_rescanBlockchain
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_rescanBlockchainAsyncJ
+      _ZN6Monero10WalletImpl16rescanBlockchainEv
+      _ZN6Monero10WalletImpl21rescanBlockchainAsyncEv
+
+  Method: rescanBlockchainAsync (line 162)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_rescanBlockchainAsync
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_rescanBlockchainAsyncJ
+      _ZN6Monero10WalletImpl21rescanBlockchainAsyncEv
+
+  Method: exportKeyImages (line 165)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_exportKeyImages
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl15exportKeyImagesERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEb
+
+  Method: importKeyImages (line 166)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_importKeyImages
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl15importKeyImagesERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: exportOutputs (line 169)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_exportOutputs
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl13exportOutputsERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEb
+
+  Method: importOutputs (line 170)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_importOutputs
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl13importOutputsERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: getMultisigInfo (line 173)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getMultisigInfo
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero10WalletImpl15getMultisigInfoEv
+
+  Method: makeMultisig (line 174)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_makeMultisig
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl12makeMultisigERKNSt6__ndk16vectorINS1_12basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEENS6_IS8_EEEEj
+
+  Method: finalizeMultisig (line 175)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_finalizeMultisig
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_finalizeMultisig
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_finalizeMultisigJ
+    [MISSING]   Or C++ method containing: finalizeMultisig
+
+  Method: isMultisig (line 176)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_isMultisig
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_isMultisig
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_isMultisigJ
+    [MISSING]   Or C++ method containing: isMultisig
+
+  Method: signMultisigTxHex (line 177)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_signMultisigTxHex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_signMultisigTxHex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_signMultisigTxHexJ
+    [MISSING]   Or C++ method containing: signMultisigTxHex
+
+  Method: submitMultisigTxHex (line 178)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_submitMultisigTxHex
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_submitMultisigTxHex
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_submitMultisigTxHexJ
+    [MISSING]   Or C++ method containing: submitMultisigTxHex
+
+  Method: setListenerJ (line 181)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setListenerJ
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setListenerJ
+
+  Method: getDefaultMixin (line 183)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getDefaultMixin
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getDefaultMixin
+
+  Method: setDefaultMixin (line 184)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setDefaultMixin
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_setDefaultMixin
+      _ZN6Monero10WalletImpl15setDefaultMixinEj
+
+  Method: setAutoRefreshInterval (line 185)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setAutoRefreshInterval
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero10WalletImpl22setAutoRefreshIntervalEi
+
+  Method: getAutoRefreshInterval (line 186)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getAutoRefreshInterval
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_getAutoRefreshInterval
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_getAutoRefreshIntervalJ
+    [MISSING]   Or C++ method containing: getAutoRefreshInterval
+
+  Method: paymentIdValid (line 189)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_paymentIdValid
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero6Wallet14paymentIdValidERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+  Method: addressValid (line 190)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_addressValid
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero6Wallet12addressValidERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEENS_11NetworkTypeE
+
+  Method: keyValid (line 191)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_keyValid
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero6Wallet8keyValidERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEES9_bNS_11NetworkTypeERS7_
+
+  Method: getPaymentIdFromAddress (line 192)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getPaymentIdFromAddress
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getPaymentIdFromAddress
+
+  Method: getMaximumAllowedAmount (line 193)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_getMaximumAllowedAmount
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Wallet_getMaximumAllowedAmount
+
+  Method: printConnections (line 194)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_printConnections
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_printConnections
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_printConnectionsJ
+    [MISSING]   Or C++ method containing: printConnections
+
+  Method: isKeyImageSpent (line 195)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_isKeyImageSpent
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_Wallet_isKeyImageSpent
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_Wallet_isKeyImageSpentJ
+    [MISSING]   Or C++ method containing: isKeyImageSpent
+
+  Method: setLogLevel (line 198)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setLogLevel
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_WalletManager_setLogLevel
+      _ZN6Monero20WalletManagerFactory11setLogLevelEi
+
+  Method: setLogCategories (line 199)
+    JNI name: Java_com_m2049r_xmrwallet_Wallet_setLogCategories
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero20WalletManagerFactory16setLogCategoriesERKNSt6__ndk112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE
+
+Processing: PendingTransaction
+  Method: getStatusNative (line 92)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getStatusNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getStatusNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getStatusNativeJ
+    [MISSING]   Or C++ method containing: getStatusNative
+
+  Method: getErrorStringNative (line 94)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getErrorStringNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getErrorStringNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getErrorStringNativeJ
+    [MISSING]   Or C++ method containing: getErrorStringNative
+
+  Method: commitNative (line 96)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_commitNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_commitNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_commitNativeJ
+    [MISSING]   Or C++ method containing: commitNative
+
+  Method: getAmountNative (line 98)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getAmountNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getAmountNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getAmountNativeJ
+    [MISSING]   Or C++ method containing: getAmountNative
+
+  Method: getFeeNative (line 100)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getFeeNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getFeeNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getFeeNativeJ
+    [MISSING]   Or C++ method containing: getFeeNative
+
+  Method: getTxIdsNative (line 102)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getTxIdsNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getTxIdsNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getTxIdsNativeJ
+    [MISSING]   Or C++ method containing: getTxIdsNative
+
+  Method: getTxCountNative (line 104)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getTxCountNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getTxCountNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getTxCountNativeJ
+    [MISSING]   Or C++ method containing: getTxCountNative
+
+  Method: disposeNative (line 106)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_disposeNative
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_disposeNative
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_disposeNativeJ
+    [MISSING]   Or C++ method containing: disposeNative
+
+  Method: getFirstTxId (line 108)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getFirstTxId
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getFirstTxIdJ
+
+  Method: getSerializedTransaction (line 110)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getSerializedTransaction
+    [MISSING] Not found in library
+    [MISSING]   Expected JNI: Java_com_m2049r_xmrwallet_PendingTransaction_getSerializedTransaction
+    [MISSING]   Or with J: Java_com_m2049r_xmrwallet_PendingTransaction_getSerializedTransactionJ
+    [MISSING]   Or C++ method containing: getSerializedTransaction
+
+  Method: getStatus (line 112)
+    JNI name: Java_com_m2049r_xmrwallet_PendingTransaction_getStatus
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_PendingTransaction_getStatusJ
+      Java_com_m2049r_xmrwallet_model_Wallet_getStatusJ
+
+Processing: Coins
+  Method: count (line 13)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_count
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      async_wait_ctx_reset_counts
+      cfg_count_numbers
+      count_slabhash_entries
+
+  Method: getAll (line 14)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_getAll
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZNK6Monero14SubaddressImpl6getAllEv
+      _ZNK6Monero15AddressBookImpl6getAllEv
+      _ZNK6Monero21SubaddressAccountImpl6getAllEv
+
+  Method: coin (line 15)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_coin
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      coinsInfoArrayList
+      _ZN10cryptonote11is_coinbaseERKNS_11transactionE
+      _ZN6Monero10WalletImpl5coinsEv
+
+  Method: refresh (line 16)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_refresh
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      Java_com_m2049r_xmrwallet_model_Coins_refresh
+      Java_com_m2049r_xmrwallet_model_TransactionHistory_refreshJ
+      Java_com_m2049r_xmrwallet_model_Wallet_refresh
+
+  Method: setFrozen (line 17)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_setFrozen
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero9CoinsImpl9setFrozenEi
+
+  Method: thaw (line 18)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_thaw
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN5tools7wallet24thawEm
+      _ZN5tools7wallet24thawERKN6crypto9key_imageE
+      _ZN6Monero9CoinsImpl4thawEi
+
+  Method: isTransferUnlocked (line 19)
+    JNI name: Java_com_m2049r_xmrwallet_Coins_isTransferUnlocked
+    [FOUND-CPP] Found C++ implementation (mangled name)
+      _ZN6Monero9CoinsImpl18isTransferUnlockedEmm
+
+=== SUMMARY ===
+Total native methods found: 253
+[FOUND] Exact matches in library: 137
+[FOUND-J] Found with 'J' suffix: 0
+[MISSING] Missing from library: 116
+
+[WARNING] Some native methods are not implemented in the library!

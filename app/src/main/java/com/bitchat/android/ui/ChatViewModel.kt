@@ -551,7 +551,7 @@ class ChatViewModel(
     // MARK: - Emergency Clear
     
     fun panicClearAllData() {
-        Log.w(TAG, "ðŸš¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
+        Log.w(TAG, "Ã°Å¸Å¡Â¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
         
         // Clear all UI managers
         messageManager.clearAllMessages()
@@ -576,7 +576,7 @@ class ChatViewModel(
         state.setNickname(newNickname)
         dataManager.saveNickname(newNickname)
         
-        Log.w(TAG, "ðŸš¨ PANIC MODE COMPLETED - All sensitive data cleared")
+        Log.w(TAG, "Ã°Å¸Å¡Â¨ PANIC MODE COMPLETED - All sensitive data cleared")
         
         // Note: Mesh service restart is now handled by MainActivity
         // This method now only clears data, not mesh service lifecycle
@@ -590,9 +590,9 @@ class ChatViewModel(
             // Request mesh service to clear all its internal data
             meshService.clearAllInternalData()
             
-            Log.d(TAG, "âœ… Cleared all mesh service data")
+            Log.d(TAG, "Ã¢Å“â€¦ Cleared all mesh service data")
         } catch (e: Exception) {
-            Log.e(TAG, "âŒ Error clearing mesh service data: ${e.message}")
+            Log.e(TAG, "Ã¢ÂÅ’ Error clearing mesh service data: ${e.message}")
         }
     }
     
@@ -608,14 +608,14 @@ class ChatViewModel(
             try {
                 val identityManager = com.bitchat.android.identity.SecureIdentityStateManager(getApplication())
                 identityManager.clearIdentityData()
-                Log.d(TAG, "âœ… Cleared secure identity state")
+                Log.d(TAG, "Ã¢Å“â€¦ Cleared secure identity state")
             } catch (e: Exception) {
                 Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
             }
             
-            Log.d(TAG, "âœ… Cleared all cryptographic data")
+            Log.d(TAG, "Ã¢Å“â€¦ Cleared all cryptographic data")
         } catch (e: Exception) {
-            Log.e(TAG, "âŒ Error clearing cryptographic data: ${e.message}")
+            Log.e(TAG, "Ã¢ÂÅ’ Error clearing cryptographic data: ${e.message}")
         }
     }
     
@@ -878,11 +878,11 @@ class ChatViewModel(
     private fun updateExistingTransactionMessage(message: BitchatMessage, txId: String, status: String) {
         try {
             val statusEmoji = when (status.lowercase()) {
-                "confirmed" -> "✅"
-                "failed" -> "❌"
-                "pending" -> "⏳"
-                "cancelled" -> "🚫"
-                else -> "ℹ️"
+                "confirmed" -> "âœ…"
+                "failed" -> "âŒ"
+                "pending" -> "â³"
+                "cancelled" -> "ðŸš«"
+                else -> "â„¹ï¸"
             }
             
             // Create updated message content
@@ -957,7 +957,7 @@ class ChatViewModel(
      * Add Monero transaction message with tracking
      */
     fun addMoneroTransactionMessage(txId: String, amount: String, recipientAddress: String) {
-        val content = "Sending $amount XMR... (⏳ pending)"
+        val content = "Sending $amount XMR... (â³ pending)"
         val transactionMessage = BitchatMessage(
             id = "tx_$txId",
             sender = "System",
