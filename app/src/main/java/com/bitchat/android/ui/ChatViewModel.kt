@@ -14,6 +14,8 @@ import com.bitchat.android.nostr.NostrGeohashService
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.bitchat.android.monero.messaging.MoneroMessageHandler
+import com.bitchat.android.monero.wallet.WalletSuite
 
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -112,6 +114,22 @@ class ChatViewModel(
     // Map of peer -> Monero address
     private val _peerMoneroAddresses = mutableStateOf(emptyMap<String, String>())
     val peerMoneroAddresses: Map<String, String> get() = _peerMoneroAddresses.value
+    var walletSuite by mutableStateOf<WalletSuite?>(null) 
+        private set
+    var moneroMessageHandler by mutableStateOf(MoneroMessageHandler())
+        private set
+    var isMoneroModeActive by mutableStateOf(false) 
+        private set
+    var currentBalance by mutableStateOf("0.000000") 
+        private set
+    var isSyncing by mutableStateOf(false) 
+        private set
+    var syncProgress by mutableStateOf(0) 
+        private set
+    var walletStatusMessage by mutableStateOf("Wallet initializing...") 
+        private set
+    var isWalletReady by mutableStateOf(false) 
+        private set
     
     init {
         // Note: Mesh service delegate is now set by MainActivity
