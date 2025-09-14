@@ -1002,5 +1002,30 @@ class ChatViewModel(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to copy to clipboard: ${e.message}")
         }
-    }    
+    }
+
+    /**
+     * Send a direct message to a specific peer without switching to private chat view
+     * This is useful for sending system messages or notifications
+     */
+    fun sendDirectMessage(peerID: String, content: String) {
+        if (content.isEmpty()) return
+        
+        Log.d(TAG, "Sending direct message to $peerID: $content")
+        
+        val recipientNickname = meshService.getPeerNicknames()[peerID]
+        
+        // Use the private chat manager to send the message
+        privateChatManager.sendPrivateMessage(
+            content, 
+            peerID, 
+            recipientNickname,
+            state.getNicknameValue(),
+            meshService.myPeerID
+        ) { messageContent, targetPeerID, recipientNicknameParam, messageId ->
+            // Route via MessageRouter (mesh when connected+established, else Nostr)
+            val router = com.bitchat.android.services.MessageRouter.getInstance(getApplication(), meshService)
+            router.sendPrivate(messageContent, targetPeerID, recipientNicknameParam, messageId)
+        }
+    }            
 }
