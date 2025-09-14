@@ -66,7 +66,7 @@ public class Wallet {
     public native int getStatusJ();
     private native int statusWithErrorString(int[] outStatus, String[] outError);
     public native boolean setPassword(String password);
-    public native String getAddress();
+    public native String getAddressJ();
     public native String getPath();
     public native int getNetworkType();
     public native String getSecretViewKey();
@@ -199,6 +199,10 @@ public class Wallet {
     
     public int getStatus() {
         return getStatusJ();
+    }
+
+    public String getAddress() {
+        return getAddressJ();
     }
     
     public void setListener(WalletListener listener) {
