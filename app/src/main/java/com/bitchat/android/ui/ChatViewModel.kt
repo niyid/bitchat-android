@@ -3,35 +3,19 @@ package com.bitchat.android.ui
 import android.app.Application
 import android.content.Context
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.LiveData
 import androidx.lifecycle.viewModelScope
-import com.bitchat.android.favorites.FavoritesPersistenceService
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import com.bitchat.android.mesh.BluetoothMeshDelegate
 import com.bitchat.android.mesh.BluetoothMeshService
-import com.bitchat.android.service.MeshServiceHolder
 import com.bitchat.android.model.BitchatMessage
-import com.bitchat.android.model.BitchatMessageType
-import com.bitchat.android.nostr.NostrIdentityBridge
 import com.bitchat.android.protocol.BitchatPacket
-
+import com.bitchat.android.nostr.NostrGeohashService
 
 import kotlinx.coroutines.launch
-import com.bitchat.android.util.NotificationIntervalManager
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.util.Date
+import java.util.*
 import kotlin.random.Random
-import com.bitchat.android.services.VerificationService
-import com.bitchat.android.identity.SecureIdentityStateManager
-import com.bitchat.android.noise.NoiseSession
-import com.bitchat.android.nostr.GeohashAliasRegistry
-import com.bitchat.android.util.dataFromHexString
-import com.bitchat.android.util.hexEncodedString
-import java.security.MessageDigest
 
 /**
  * Refactored ChatViewModel - Main coordinator for bitchat functionality
@@ -39,88 +23,31 @@ import java.security.MessageDigest
  */
 class ChatViewModel(
     application: Application,
-    initialMeshService: BluetoothMeshService
+    val meshService: BluetoothMeshService
 ) : AndroidViewModel(application), BluetoothMeshDelegate {
-
-    // Made var to support mesh service replacement after panic clear
-    var meshService: BluetoothMeshService = initialMeshService
-        private set
-    private val debugManager by lazy { try { com.bitchat.android.ui.debug.DebugSettingsManager.getInstance() } catch (e: Exception) { null } }
 
     companion object {
         private const val TAG = "ChatViewModel"
     }
 
-    fun sendVoiceNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
-        mediaSendingManager.sendVoiceNote(toPeerIDOrNull, channelOrNull, filePath)
-    }
-
-    fun sendFileNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
-        mediaSendingManager.sendFileNote(toPeerIDOrNull, channelOrNull, filePath)
-    }
-
-    fun sendImageNote(toPeerIDOrNull: String?, channelOrNull: String?, filePath: String) {
-        mediaSendingManager.sendImageNote(toPeerIDOrNull, channelOrNull, filePath)
-    }
-
-    fun getCurrentNpub(): String? {
-        return try {
-            NostrIdentityBridge
-                .getCurrentNostrIdentity(getApplication())
-                ?.npub
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    fun buildMyQRString(nickname: String, npub: String?): String {
-        return VerificationService.buildMyQRString(nickname, npub) ?: ""
-    }
-
-    // MARK: - State management
-    private val state = ChatState(
-        scope = viewModelScope,
-    )
-
-    // Transfer progress tracking
-    private val transferMessageMap = mutableMapOf<String, String>()
-    private val messageTransferMap = mutableMapOf<String, String>()
-
+    // State management
+    private val state = ChatState()
+    
     // Specialized managers
     private val dataManager = DataManager(application.applicationContext)
-    private val identityManager by lazy { SecureIdentityStateManager(getApplication()) }
     private val messageManager = MessageManager(state)
     private val channelManager = ChannelManager(state, messageManager, dataManager, viewModelScope)
-
+    
     // Create Noise session delegate for clean dependency injection
     private val noiseSessionDelegate = object : NoiseSessionDelegate {
         override fun hasEstablishedSession(peerID: String): Boolean = meshService.hasEstablishedSession(peerID)
-        override fun initiateHandshake(peerID: String) = meshService.initiateNoiseHandshake(peerID)
+        override fun initiateHandshake(peerID: String) = meshService.initiateNoiseHandshake(peerID) 
         override fun getMyPeerID(): String = meshService.myPeerID
     }
-
+    
     val privateChatManager = PrivateChatManager(state, messageManager, dataManager, noiseSessionDelegate)
     private val commandProcessor = CommandProcessor(state, messageManager, channelManager, privateChatManager)
-    private val notificationManager = NotificationManager(
-      application.applicationContext,
-      NotificationManagerCompat.from(application.applicationContext),
-      NotificationIntervalManager()
-    )
-
-    private val verificationHandler = VerificationHandler(
-        context = application.applicationContext,
-        scope = viewModelScope,
-        getMeshService = { meshService },
-        identityManager = identityManager,
-        state = state,
-        notificationManager = notificationManager,
-        messageManager = messageManager
-    )
-    val verifiedFingerprints = verificationHandler.verifiedFingerprints
-
-    // Media file sending manager
-    private val mediaSendingManager = MediaSendingManager(state, messageManager, channelManager) { meshService }
-    
+    private val notificationManager = NotificationManager(application.applicationContext)
     // Delegate handler for mesh callbacks
     private val meshDelegateHandler = MeshDelegateHandler(
         state = state,
@@ -134,109 +61,55 @@ class ChatViewModel(
         getMeshService = { meshService }
     )
     
-    // New Geohash architecture ViewModel (replaces God object service usage in UI path)
-    val geohashViewModel = GeohashViewModel(
+    // Nostr and Geohash service - initialize singleton
+    private val nostrGeohashService = NostrGeohashService.initialize(
         application = application,
         state = state,
         messageManager = messageManager,
         privateChatManager = privateChatManager,
         meshDelegateHandler = meshDelegateHandler,
+        coroutineScope = viewModelScope,
         dataManager = dataManager,
         notificationManager = notificationManager
     )
-
-
-
-
-
-    val messages: StateFlow<List<BitchatMessage>> = state.messages
-    val connectedPeers: StateFlow<List<String>> = state.connectedPeers
-    val nickname: StateFlow<String> = state.nickname
-    val isConnected: StateFlow<Boolean> = state.isConnected
-    val privateChats: StateFlow<Map<String, List<BitchatMessage>>> = state.privateChats
-    val selectedPrivateChatPeer: StateFlow<String?> = state.selectedPrivateChatPeer
-    val unreadPrivateMessages: StateFlow<Set<String>> = state.unreadPrivateMessages
-    val joinedChannels: StateFlow<Set<String>> = state.joinedChannels
-    val currentChannel: StateFlow<String?> = state.currentChannel
-    val channelMessages: StateFlow<Map<String, List<BitchatMessage>>> = state.channelMessages
-    val unreadChannelMessages: StateFlow<Map<String, Int>> = state.unreadChannelMessages
-    val passwordProtectedChannels: StateFlow<Set<String>> = state.passwordProtectedChannels
-    val showPasswordPrompt: StateFlow<Boolean> = state.showPasswordPrompt
-    val passwordPromptChannel: StateFlow<String?> = state.passwordPromptChannel
+    
+    // Expose state through LiveData (maintaining the same interface)
+    val messages: LiveData<List<BitchatMessage>> = state.messages
+    val connectedPeers: LiveData<List<String>> = state.connectedPeers
+    val nickname: LiveData<String> = state.nickname
+    val isConnected: LiveData<Boolean> = state.isConnected
+    val privateChats: LiveData<Map<String, List<BitchatMessage>>> = state.privateChats
+    val selectedPrivateChatPeer: LiveData<String?> = state.selectedPrivateChatPeer
+    val unreadPrivateMessages: LiveData<Set<String>> = state.unreadPrivateMessages
+    val joinedChannels: LiveData<Set<String>> = state.joinedChannels
+    val currentChannel: LiveData<String?> = state.currentChannel
+    val channelMessages: LiveData<Map<String, List<BitchatMessage>>> = state.channelMessages
+    val unreadChannelMessages: LiveData<Map<String, Int>> = state.unreadChannelMessages
+    val passwordProtectedChannels: LiveData<Set<String>> = state.passwordProtectedChannels
+    val showPasswordPrompt: LiveData<Boolean> = state.showPasswordPrompt
+    val passwordPromptChannel: LiveData<String?> = state.passwordPromptChannel
+    val showSidebar: LiveData<Boolean> = state.showSidebar
     val hasUnreadChannels = state.hasUnreadChannels
     val hasUnreadPrivateMessages = state.hasUnreadPrivateMessages
-    val showCommandSuggestions: StateFlow<Boolean> = state.showCommandSuggestions
-    val commandSuggestions: StateFlow<List<CommandSuggestion>> = state.commandSuggestions
-    val showMentionSuggestions: StateFlow<Boolean> = state.showMentionSuggestions
-    val mentionSuggestions: StateFlow<List<String>> = state.mentionSuggestions
-    val favoritePeers: StateFlow<Set<String>> = state.favoritePeers
-    val peerSessionStates: StateFlow<Map<String, String>> = state.peerSessionStates
-    val peerFingerprints: StateFlow<Map<String, String>> = state.peerFingerprints
-    val peerNicknames: StateFlow<Map<String, String>> = state.peerNicknames
-    val peerRSSI: StateFlow<Map<String, Int>> = state.peerRSSI
-    val peerDirect: StateFlow<Map<String, Boolean>> = state.peerDirect
-    val showAppInfo: StateFlow<Boolean> = state.showAppInfo
-    val showMeshPeerList: StateFlow<Boolean> = state.showMeshPeerList
-    val privateChatSheetPeer: StateFlow<String?> = state.privateChatSheetPeer
-    val showVerificationSheet: StateFlow<Boolean> = state.showVerificationSheet
-    val showSecurityVerificationSheet: StateFlow<Boolean> = state.showSecurityVerificationSheet
-    val selectedLocationChannel: StateFlow<com.bitchat.android.geohash.ChannelID?> = state.selectedLocationChannel
-    val isTeleported: StateFlow<Boolean> = state.isTeleported
-    val geohashPeople: StateFlow<List<GeoPerson>> = state.geohashPeople
-    val teleportedGeo: StateFlow<Set<String>> = state.teleportedGeo
-    val geohashParticipantCounts: StateFlow<Map<String, Int>> = state.geohashParticipantCounts
-
+    val showCommandSuggestions: LiveData<Boolean> = state.showCommandSuggestions
+    val commandSuggestions: LiveData<List<CommandSuggestion>> = state.commandSuggestions
+    val showMentionSuggestions: LiveData<Boolean> = state.showMentionSuggestions
+    val mentionSuggestions: LiveData<List<String>> = state.mentionSuggestions
+    val favoritePeers: LiveData<Set<String>> = state.favoritePeers
+    val peerSessionStates: LiveData<Map<String, String>> = state.peerSessionStates
+    val peerFingerprints: LiveData<Map<String, String>> = state.peerFingerprints
+    val peerNicknames: LiveData<Map<String, String>> = state.peerNicknames
+    val peerRSSI: LiveData<Map<String, Int>> = state.peerRSSI
+    val showAppInfo: LiveData<Boolean> = state.showAppInfo
+    val selectedLocationChannel: LiveData<com.bitchat.android.geohash.ChannelID?> = state.selectedLocationChannel
+    val isTeleported: LiveData<Boolean> = state.isTeleported
+    val geohashPeople: LiveData<List<GeoPerson>> = state.geohashPeople
+    val teleportedGeo: LiveData<Set<String>> = state.teleportedGeo
+    val geohashParticipantCounts: LiveData<Map<String, Int>> = state.geohashParticipantCounts
+    
     init {
         // Note: Mesh service delegate is now set by MainActivity
         loadAndInitialize()
-        // Hydrate UI state from process-wide AppStateStore to survive Activity recreation
-        viewModelScope.launch {
-            try { com.bitchat.android.services.AppStateStore.peers.collect { peers ->
-                state.setConnectedPeers(peers)
-                state.setIsConnected(peers.isNotEmpty())
-            } } catch (_: Exception) { }
-        }
-        viewModelScope.launch {
-            try { com.bitchat.android.services.AppStateStore.publicMessages.collect { msgs ->
-                // Source of truth is AppStateStore; replace to avoid duplicate keys in LazyColumn
-                state.setMessages(msgs)
-            } } catch (_: Exception) { }
-        }
-        viewModelScope.launch {
-            try { com.bitchat.android.services.AppStateStore.privateMessages.collect { byPeer ->
-                // Replace with store snapshot
-                state.setPrivateChats(byPeer)
-                // Recompute unread set using SeenMessageStore for robustness across Activity recreation
-                try {
-                    val seen = com.bitchat.android.services.SeenMessageStore.getInstance(getApplication())
-                    val myNick = state.getNicknameValue() ?: meshService.myPeerID
-                    val unread = mutableSetOf<String>()
-                    byPeer.forEach { (peer, list) ->
-                        if (list.any { msg -> msg.sender != myNick && !seen.hasRead(msg.id) }) unread.add(peer)
-                    }
-                    state.setUnreadPrivateMessages(unread)
-                } catch (_: Exception) { }
-            } } catch (_: Exception) { }
-        }
-        viewModelScope.launch {
-            try { com.bitchat.android.services.AppStateStore.channelMessages.collect { byChannel ->
-                // Replace with store snapshot
-                state.setChannelMessages(byChannel)
-            } } catch (_: Exception) { }
-        }
-        // Subscribe to BLE transfer progress and reflect in message deliveryStatus
-        viewModelScope.launch {
-            com.bitchat.android.mesh.TransferProgressManager.events.collect { evt ->
-                mediaSendingManager.handleTransferProgressEvent(evt)
-            }
-        }
-        
-        // Removed background location notes subscription. Notes now load only when sheet opens.
-    }
-
-    fun cancelMediaSend(messageId: String) {
-        // Delegate to MediaSendingManager which tracks transfer IDs and cleans up UI state
-        mediaSendingManager.cancelMediaSend(messageId)
     }
     
     private fun loadAndInitialize() {
@@ -263,49 +136,44 @@ class ChatViewModel(
         state.setFavoritePeers(dataManager.favoritePeers.toSet())
         dataManager.loadBlockedUsers()
         dataManager.loadGeohashBlockedUsers()
-
+        
         // Log all favorites at startup
         dataManager.logAllFavorites()
         logCurrentFavoriteState()
         
         // Initialize session state monitoring
         initializeSessionStateMonitoring()
-
-        // Bridge DebugSettingsManager -> Chat messages when verbose logging is on
-        viewModelScope.launch {
-            com.bitchat.android.ui.debug.DebugSettingsManager.getInstance().debugMessages.collect { msgs ->
-                if (com.bitchat.android.ui.debug.DebugSettingsManager.getInstance().verboseLoggingEnabled.value) {
-                    // Only show debug logs in the Mesh chat timeline to avoid leaking into geohash chats
-                    val selectedLocation = state.selectedLocationChannel.value
-                    if (selectedLocation is com.bitchat.android.geohash.ChannelID.Mesh) {
-                        // Append only latest debug message as system message to avoid flooding
-                        msgs.lastOrNull()?.let { dm ->
-                            messageManager.addSystemMessage(dm.content)
-                        }
-                    }
-                }
-            }
-        }
         
-        // Initialize new geohash architecture
-        geohashViewModel.initialize()
-
+        // Initialize location channel state
+        nostrGeohashService.initializeLocationChannelState()
+        
         // Initialize favorites persistence service
         com.bitchat.android.favorites.FavoritesPersistenceService.initialize(getApplication())
-
-        // Load verified fingerprints from secure storage
-        verificationHandler.loadVerifiedFingerprints()
-
+        
+        // Initialize Nostr integration
+        nostrGeohashService.initializeNostrIntegration()
 
         // Ensure NostrTransport knows our mesh peer ID for embedded packets
         try {
             val nostrTransport = com.bitchat.android.nostr.NostrTransport.getInstance(getApplication())
             nostrTransport.senderPeerID = meshService.myPeerID
         } catch (_: Exception) { }
-
+        
         // Note: Mesh service is now started by MainActivity
-
-        // BLE receives are inserted by MessageHandler path; no VoiceNoteBus for Tor in this branch.
+        
+        // Show welcome message if no peers after delay
+        viewModelScope.launch {
+            delay(10000)
+            if (state.getConnectedPeersValue().isEmpty() && state.getMessagesValue().isEmpty()) {
+                val welcomeMessage = BitchatMessage(
+                    sender = "system",
+                    content = "get people around you to download bitchat and chat with them here!",
+                    timestamp = Date(),
+                    isRelay = false
+                )
+                messageManager.addMessage(welcomeMessage)
+            }
+        }
     }
     
     override fun onCleared() {
@@ -321,46 +189,6 @@ class ChatViewModel(
         meshService.sendBroadcastAnnounce()
     }
     
-    /**
-     * Ensure Nostr DM subscription for a geohash conversation key if known
-     * Minimal-change approach: reflectively access GeohashViewModel internals to reuse pipeline
-     */
-    private fun ensureGeohashDMSubscriptionIfNeeded(convKey: String) {
-        try {
-            val repoField = GeohashViewModel::class.java.getDeclaredField("repo")
-            repoField.isAccessible = true
-            val repo = repoField.get(geohashViewModel) as com.bitchat.android.nostr.GeohashRepository
-            val gh = repo.getConversationGeohash(convKey)
-            if (!gh.isNullOrEmpty()) {
-                val subMgrField = GeohashViewModel::class.java.getDeclaredField("subscriptionManager")
-                subMgrField.isAccessible = true
-                val subMgr = subMgrField.get(geohashViewModel) as com.bitchat.android.nostr.NostrSubscriptionManager
-                val identity = com.bitchat.android.nostr.NostrIdentityBridge.deriveIdentity(gh, getApplication())
-                val subId = "geo-dm-$gh"
-                val currentDmSubField = GeohashViewModel::class.java.getDeclaredField("currentDmSubId")
-                currentDmSubField.isAccessible = true
-                val currentId = currentDmSubField.get(geohashViewModel) as String?
-                if (currentId != subId) {
-                    (currentId)?.let { subMgr.unsubscribe(it) }
-                    currentDmSubField.set(geohashViewModel, subId)
-                    subMgr.subscribeGiftWraps(
-                        pubkey = identity.publicKeyHex,
-                        sinceMs = System.currentTimeMillis() - 172800000L,
-                        id = subId,
-                        handler = { event ->
-                            val dmHandlerField = GeohashViewModel::class.java.getDeclaredField("dmHandler")
-                            dmHandlerField.isAccessible = true
-                            val dmHandler = dmHandlerField.get(geohashViewModel) as com.bitchat.android.nostr.NostrDirectMessageHandler
-                            dmHandler.onGiftWrap(event, gh, identity)
-                        }
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "ensureGeohashDMSubscriptionIfNeeded failed: ${e.message}")
-        }
-    }
-
     // MARK: - Channel Management (delegated)
     
     fun joinChannel(channel: String, password: String? = null): Boolean {
@@ -379,11 +207,6 @@ class ChatViewModel(
     // MARK: - Private Chat Management (delegated)
     
     fun startPrivateChat(peerID: String) {
-        // For geohash conversation keys, ensure DM subscription is active
-        if (peerID.startsWith("nostr_")) {
-            ensureGeohashDMSubscriptionIfNeeded(peerID)
-        }
-        
         val success = privateChatManager.startPrivateChat(peerID, meshService)
         if (success) {
             // Notify notification manager about current private chat
@@ -410,64 +233,7 @@ class ChatViewModel(
         setCurrentPrivateChatPeer(null)
         // Clear mesh mention notifications since user is now back in mesh chat
         clearMeshMentionNotifications()
-        // Ensure sheet is hidden
-        hidePrivateChatSheet()
     }
-
-    // MARK: - Open Latest Unread Private Chat
-
-    fun openLatestUnreadPrivateChat() {
-        try {
-            val unreadKeys = state.getUnreadPrivateMessagesValue()
-            if (unreadKeys.isEmpty()) return
-
-            val me = state.getNicknameValue() ?: meshService.myPeerID
-            val chats = state.getPrivateChatsValue()
-
-            // Pick the latest incoming message among unread conversations
-            var bestKey: String? = null
-            var bestTime: Long = Long.MIN_VALUE
-
-            unreadKeys.forEach { key ->
-                val list = chats[key]
-                if (!list.isNullOrEmpty()) {
-                    // Prefer the latest incoming message (sender != me), fallback to last message
-                    val latestIncoming = list.lastOrNull { it.sender != me }
-                    val candidateTime = (latestIncoming ?: list.last()).timestamp.time
-                    if (candidateTime > bestTime) {
-                        bestTime = candidateTime
-                        bestKey = key
-                    }
-                }
-            }
-
-            val targetKey = bestKey ?: unreadKeys.firstOrNull() ?: return
-
-            val openPeer: String = if (targetKey.startsWith("nostr_")) {
-                // Use the exact conversation key for geohash DMs and ensure DM subscription
-                ensureGeohashDMSubscriptionIfNeeded(targetKey)
-                targetKey
-            } else {
-                // Resolve to a canonical mesh peer if needed
-                val canonical = com.bitchat.android.services.ConversationAliasResolver.resolveCanonicalPeerID(
-                    selectedPeerID = targetKey,
-                    connectedPeers = state.getConnectedPeersValue(),
-                    meshNoiseKeyForPeer = { pid -> meshService.getPeerInfo(pid)?.noisePublicKey },
-                    meshHasPeer = { pid -> meshService.getPeerInfo(pid)?.isConnected == true },
-                    nostrPubHexForAlias = { alias -> com.bitchat.android.nostr.GeohashAliasRegistry.get(alias) },
-                    findNoiseKeyForNostr = { key -> com.bitchat.android.favorites.FavoritesPersistenceService.shared.findNoiseKey(key) }
-                )
-                canonical ?: targetKey
-            }
-
-            showPrivateChatSheet(openPeer)
-        } catch (e: Exception) {
-            Log.w(TAG, "openLatestUnreadPrivateChat failed: ${e.message}")
-        }
-    }
-
-    // END - Open Latest Unread Private Chat
-
     
     // MARK: - Message Sending
     
@@ -476,21 +242,9 @@ class ChatViewModel(
         
         // Check for commands
         if (content.startsWith("/")) {
-            val selectedLocationForCommand = state.selectedLocationChannel.value
             commandProcessor.processCommand(content, meshService, meshService.myPeerID, { messageContent, mentions, channel ->
-                if (selectedLocationForCommand is com.bitchat.android.geohash.ChannelID.Location) {
-                    // Route command-generated public messages via Nostr in geohash channels
-                    geohashViewModel.sendGeohashMessage(
-                        messageContent,
-                        selectedLocationForCommand.channel,
-                        meshService.myPeerID,
-                        state.getNicknameValue()
-                    )
-                } else {
-                    // Default: route via mesh
-                    meshService.sendMessage(messageContent, mentions, channel)
-                }
-            })
+                meshService.sendMessage(messageContent, mentions, channel)
+            }, this)
             return
         }
         
@@ -508,15 +262,11 @@ class ChatViewModel(
                 connectedPeers = state.getConnectedPeersValue(),
                 meshNoiseKeyForPeer = { pid -> meshService.getPeerInfo(pid)?.noisePublicKey },
                 meshHasPeer = { pid -> meshService.getPeerInfo(pid)?.isConnected == true },
-                nostrPubHexForAlias = { alias -> com.bitchat.android.nostr.GeohashAliasRegistry.get(alias) },
+                nostrPubHexForAlias = { alias -> nostrGeohashService.getNostrKeyMapping()[alias] },
                 findNoiseKeyForNostr = { key -> com.bitchat.android.favorites.FavoritesPersistenceService.shared.findNoiseKey(key) }
             ).also { canonical ->
                 if (canonical != state.getSelectedPrivateChatPeerValue()) {
                     privateChatManager.startPrivateChat(canonical, meshService)
-                    // If we're in the private chat sheet, update its active peer too
-                    if (state.getPrivateChatSheetPeerValue() != null) {
-                        showPrivateChatSheet(canonical)
-                    }
                 }
             }
             // Send private message
@@ -537,7 +287,7 @@ class ChatViewModel(
             val selectedLocationChannel = state.selectedLocationChannel.value
             if (selectedLocationChannel is com.bitchat.android.geohash.ChannelID.Location) {
                 // Send to geohash channel via Nostr ephemeral event
-                geohashViewModel.sendGeohashMessage(content, selectedLocationChannel.channel, meshService.myPeerID, state.getNicknameValue())
+                nostrGeohashService.sendGeohashMessage(content, selectedLocationChannel.channel, meshService.myPeerID, state.getNicknameValue())
             } else {
                 // Send public/channel message via mesh
                 val message = BitchatMessage(
@@ -549,16 +299,16 @@ class ChatViewModel(
                     mentions = if (mentions.isNotEmpty()) mentions else null,
                     channel = currentChannelValue
                 )
-
+                
                 if (currentChannelValue != null) {
                     channelManager.addChannelMessage(currentChannelValue, message, meshService.myPeerID)
-
+                    
                     // Check if encrypted channel
                     if (channelManager.hasChannelKey(currentChannelValue)) {
                         channelManager.sendEncryptedChannelMessage(
-                            content,
-                            mentions,
-                            currentChannelValue,
+                            content, 
+                            mentions, 
+                            currentChannelValue, 
                             state.getNicknameValue(),
                             meshService.myPeerID,
                             onEncryptedPayload = { encryptedData ->
@@ -579,7 +329,9 @@ class ChatViewModel(
             }
         }
     }
+    
 
+    
     // MARK: - Utility Functions
     
     fun getPeerIDForNickname(nickname: String): String? {
@@ -590,36 +342,17 @@ class ChatViewModel(
         Log.d("ChatViewModel", "toggleFavorite called for peerID: $peerID")
         privateChatManager.toggleFavorite(peerID)
 
-        // Persist relationship in FavoritesPersistenceService
+        // Persist relationship in FavoritesPersistenceService when we have Noise key
         try {
-            var noiseKey: ByteArray? = null
-            var nickname: String = meshService.getPeerNicknames()[peerID] ?: peerID
-
-            // Case 1: Live mesh peer with known info
             val peerInfo = meshService.getPeerInfo(peerID)
-            if (peerInfo?.noisePublicKey != null) {
-                noiseKey = peerInfo.noisePublicKey
-                nickname = peerInfo.nickname
-            } else {
-                // Case 2: Offline favorite entry using 64-hex noise public key as peerID
-                if (peerID.length == 64 && peerID.matches(Regex("^[0-9a-fA-F]+$"))) {
-                    try {
-                        noiseKey = peerID.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-                        // Prefer nickname from favorites store if available
-                        val rel = com.bitchat.android.favorites.FavoritesPersistenceService.shared.getFavoriteStatus(noiseKey!!)
-                        if (rel != null) nickname = rel.peerNickname
-                    } catch (_: Exception) { }
-                }
-            }
-
+            val noiseKey = peerInfo?.noisePublicKey
+            val nickname = peerInfo?.nickname ?: (meshService.getPeerNicknames()[peerID] ?: peerID)
             if (noiseKey != null) {
-                // Determine current favorite state from DataManager using fingerprint
-                val identityManager = com.bitchat.android.identity.SecureIdentityStateManager(getApplication())
-                val fingerprint = identityManager.generateFingerprint(noiseKey!!)
-                val isNowFavorite = dataManager.favoritePeers.contains(fingerprint)
-
+                val isNowFavorite = dataManager.favoritePeers.contains(
+                    com.bitchat.android.mesh.PeerFingerprintManager.getInstance().getFingerprintForPeer(peerID) ?: ""
+                )
                 com.bitchat.android.favorites.FavoritesPersistenceService.shared.updateFavoriteStatus(
-                    noisePublicKey = noiseKey!!,
+                    noisePublicKey = noiseKey,
                     nickname = nickname,
                     isFavorite = isNowFavorite
                 )
@@ -652,7 +385,7 @@ class ChatViewModel(
     
     private fun logCurrentFavoriteState() {
         Log.i("ChatViewModel", "=== CURRENT FAVORITE STATE ===")
-        Log.i("ChatViewModel", "StateFlow favorite peers: ${favoritePeers.value}")
+        Log.i("ChatViewModel", "LiveData favorite peers: ${favoritePeers.value}")
         Log.i("ChatViewModel", "DataManager favorite peers: ${dataManager.favoritePeers}")
         Log.i("ChatViewModel", "Peer fingerprints: ${privateChatManager.getAllPeerFingerprints()}")
         Log.i("ChatViewModel", "==============================")
@@ -669,8 +402,6 @@ class ChatViewModel(
             }
         }
     }
-    
-    // Location notes subscription management moved to LocationNotesViewModelExtensions.kt
     
     /**
      * Update reactive states for all connected peers (session states, fingerprints, nicknames, RSSI)
@@ -696,149 +427,71 @@ class ChatViewModel(
         // Update fingerprint mappings from centralized manager
         val fingerprints = privateChatManager.getAllPeerFingerprints()
         state.setPeerFingerprints(fingerprints)
-        fingerprints.forEach { (peerID, fingerprint) ->
-            identityManager.cachePeerFingerprint(peerID, fingerprint)
-            val info = try { meshService.getPeerInfo(peerID) } catch (_: Exception) { null }
-            val noiseKeyHex = info?.noisePublicKey?.hexEncodedString()
-            if (noiseKeyHex != null) {
-                identityManager.cachePeerNoiseKey(peerID, noiseKeyHex)
-                identityManager.cacheNoiseFingerprint(noiseKeyHex, fingerprint)
-            }
-            info?.nickname?.takeIf { it.isNotBlank() }?.let { nickname ->
-                identityManager.cacheFingerprintNickname(fingerprint, nickname)
-            }
-        }
 
         val nicknames = meshService.getPeerNicknames()
         state.setPeerNicknames(nicknames)
 
         val rssiValues = meshService.getPeerRSSI()
         state.setPeerRSSI(rssiValues)
-
-        // Update directness per peer (driven by PeerManager state)
-        try {
-            val directMap = state.getConnectedPeersValue().associateWith { pid ->
-                meshService.getPeerInfo(pid)?.isDirectConnection == true
-            }
-            state.setPeerDirect(directMap)
-        } catch (_: Exception) { }
-
-        // Flush any pending QR verification once a Noise session is established
-        currentPeers.forEach { peerID ->
-            if (meshService.getSessionState(peerID) is NoiseSession.NoiseSessionState.Established) {
-                verificationHandler.sendPendingVerificationIfNeeded(peerID)
-            }
-        }
     }
-
-    // MARK: - QR Verification
     
-    fun isPeerVerified(peerID: String, verifiedFingerprints: Set<String>): Boolean {
-        if (peerID.startsWith("nostr_") || peerID.startsWith("nostr:")) return false
-        val fingerprint = verificationHandler.getPeerFingerprintForDisplay(peerID)
-        return fingerprint != null && verifiedFingerprints.contains(fingerprint)
-    }
 
-    fun isNoisePublicKeyVerified(noisePublicKey: ByteArray, verifiedFingerprints: Set<String>): Boolean {
-        val fingerprint = verificationHandler.fingerprintFromNoiseBytes(noisePublicKey)
-        return verifiedFingerprints.contains(fingerprint)
-    }
+    
 
-    fun unverifyFingerprint(peerID: String) {
-        verificationHandler.unverifyFingerprint(peerID)
-    }
+    
 
-    fun beginQRVerification(qr: VerificationService.VerificationQR): Boolean {
-        return verificationHandler.beginQRVerification(qr)
-    }
+    
 
+    
+
+    
+
+    
+
+    
+
+    
     // MARK: - Debug and Troubleshooting
     
     fun getDebugStatus(): String {
         return meshService.getDebugStatus()
     }
     
+    // Note: Mesh service restart is now handled by MainActivity
+    // This function is no longer needed
+    
+    fun setAppBackgroundState(inBackground: Boolean) {
+        // Forward to notification manager for notification logic
+        notificationManager.setAppBackgroundState(inBackground)
+    }
+    
     fun setCurrentPrivateChatPeer(peerID: String?) {
+        // Update notification manager with current private chat peer
         notificationManager.setCurrentPrivateChatPeer(peerID)
     }
     
     fun setCurrentGeohash(geohash: String?) {
+        // Update notification manager with current geohash for notification logic
         notificationManager.setCurrentGeohash(geohash)
     }
-
+    
     fun clearNotificationsForSender(peerID: String) {
+        // Clear notifications when user opens a chat
         notificationManager.clearNotificationsForSender(peerID)
     }
     
     fun clearNotificationsForGeohash(geohash: String) {
+        // Clear notifications when user opens a geohash chat
         notificationManager.clearNotificationsForGeohash(geohash)
     }
-
+    
+    /**
+     * Clear mesh mention notifications when user opens mesh chat
+     */
     fun clearMeshMentionNotifications() {
         notificationManager.clearMeshMentionNotifications()
     }
-
-    private var reopenSidebarAfterVerification = false
-
-    fun showVerificationSheet(fromSidebar: Boolean = false) {
-        if (fromSidebar) {
-            reopenSidebarAfterVerification = true
-        }
-        state.setShowVerificationSheet(true)
-    }
-
-    fun hideVerificationSheet() {
-        state.setShowVerificationSheet(false)
-        if (reopenSidebarAfterVerification) {
-            reopenSidebarAfterVerification = false
-            state.setShowMeshPeerList(true)
-        }
-    }
-
-    fun showSecurityVerificationSheet() {
-        state.setShowSecurityVerificationSheet(true)
-    }
-
-    fun hideSecurityVerificationSheet() {
-        state.setShowSecurityVerificationSheet(false)
-    }
-
-    fun showMeshPeerList() {
-        state.setShowMeshPeerList(true)
-    }
-
-    fun hideMeshPeerList() {
-        state.setShowMeshPeerList(false)
-    }
-
-    fun showPrivateChatSheet(peerID: String) {
-        state.setPrivateChatSheetPeer(peerID)
-    }
-
-    fun hidePrivateChatSheet() {
-        state.setPrivateChatSheetPeer(null)
-    }
-
-    fun getPeerFingerprintForDisplay(peerID: String): String? {
-        return verificationHandler.getPeerFingerprintForDisplay(peerID)
-    }
-
-    fun getMyFingerprint(): String {
-        return verificationHandler.getMyFingerprint()
-    }
-
-    fun resolvePeerDisplayNameForFingerprint(peerID: String): String {
-        return verificationHandler.resolvePeerDisplayNameForFingerprint(peerID)
-    }
-
-    fun verifyFingerprintValue(fingerprint: String) {
-        verificationHandler.verifyFingerprintValue(fingerprint)
-    }
-
-    fun unverifyFingerprintValue(fingerprint: String) {
-        verificationHandler.unverifyFingerprintValue(fingerprint)
-    }
-
+    
     // MARK: - Command Autocomplete (delegated)
     
     fun updateCommandSuggestions(input: String) {
@@ -880,14 +533,6 @@ class ChatViewModel(
     override fun didReceiveReadReceipt(messageID: String, recipientPeerID: String) {
         meshDelegateHandler.didReceiveReadReceipt(messageID, recipientPeerID)
     }
-
-    override fun didReceiveVerifyChallenge(peerID: String, payload: ByteArray, timestampMs: Long) {
-        verificationHandler.didReceiveVerifyChallenge(peerID, payload)
-    }
-
-    override fun didReceiveVerifyResponse(peerID: String, payload: ByteArray, timestampMs: Long) {
-        verificationHandler.didReceiveVerifyResponse(peerID, payload)
-    }
     
     override fun decryptChannelMessage(encryptedContent: ByteArray, channel: String): String? {
         return meshDelegateHandler.decryptChannelMessage(encryptedContent, channel)
@@ -906,18 +551,13 @@ class ChatViewModel(
     // MARK: - Emergency Clear
     
     fun panicClearAllData() {
-        Log.w(TAG, "ðŸš¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
+        Log.w(TAG, "Ã°Å¸Å¡Â¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
         
         // Clear all UI managers
         messageManager.clearAllMessages()
         channelManager.clearAllChannels()
         privateChatManager.clearAllPrivateChats()
         dataManager.clearAllData()
-        
-        // Clear seen message store
-        try {
-            com.bitchat.android.services.SeenMessageStore.getInstance(getApplication()).clear()
-        } catch (_: Exception) { }
         
         // Clear all mesh service data
         clearAllMeshServiceData()
@@ -927,60 +567,16 @@ class ChatViewModel(
         
         // Clear all notifications
         notificationManager.clearAllNotifications()
-
-        // Clear all media files
-        com.bitchat.android.features.file.FileUtils.clearAllMedia(getApplication())
         
-        // Clear Nostr/geohash state, keys, connections, bookmarks, and reinitialize from scratch
-        try {
-            // Clear geohash bookmarks too (panic should remove everything)
-            try {
-                val store = com.bitchat.android.geohash.GeohashBookmarksStore.getInstance(getApplication())
-                store.clearAll()
-            } catch (_: Exception) { }
-
-            geohashViewModel.panicReset()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to reset Nostr/geohash: ${e.message}")
-        }
-
+        // Clear geohash message history
+        nostrGeohashService.clearGeohashMessageHistory()
+        
         // Reset nickname
         val newNickname = "anon${Random.nextInt(1000, 9999)}"
         state.setNickname(newNickname)
         dataManager.saveNickname(newNickname)
         
-        // Recreate mesh service with fresh identity
-        recreateMeshServiceAfterPanic()
-
-        Log.w(TAG, "🚨 PANIC MODE COMPLETED - New identity: ${meshService.myPeerID}")
-    }
-
-    /**
-     * Recreate the mesh service with a fresh identity after panic clear.
-     * This ensures the new cryptographic keys are used for a new peer ID.
-     */
-    private fun recreateMeshServiceAfterPanic() {
-        val oldPeerID = meshService.myPeerID
-
-        // Clear the holder so getOrCreate() returns a fresh instance
-        MeshServiceHolder.clear()
-
-        // Create fresh mesh service with new identity (keys were regenerated in clearAllCryptographicData)
-        val freshMeshService = MeshServiceHolder.getOrCreate(getApplication())
-
-        // Replace our reference and set up the new service
-        meshService = freshMeshService
-        meshService.delegate = this
-
-        // Restart mesh operations with new identity
-        meshService.startServices()
-        meshService.sendBroadcastAnnounce()
-
-        Log.d(
-            TAG,
-            "✅ Mesh service recreated. Old peerID: $oldPeerID, New peerID: ${meshService.myPeerID}"
-        )
-        Log.w(TAG, "ðŸš¨ PANIC MODE COMPLETED - All sensitive data cleared")
+        Log.w(TAG, "Ã°Å¸Å¡Â¨ PANIC MODE COMPLETED - All sensitive data cleared")
         
         // Note: Mesh service restart is now handled by MainActivity
         // This method now only clears data, not mesh service lifecycle
@@ -994,9 +590,9 @@ class ChatViewModel(
             // Request mesh service to clear all its internal data
             meshService.clearAllInternalData()
             
-            Log.d(TAG, "âœ… Cleared all mesh service data")
+            Log.d(TAG, "Ã¢Å“â€¦ Cleared all mesh service data")
         } catch (e: Exception) {
-            Log.e(TAG, "âŒ Error clearing mesh service data: ${e.message}")
+            Log.e(TAG, "Ã¢ÂÅ’ Error clearing mesh service data: ${e.message}")
         }
     }
     
@@ -1010,104 +606,99 @@ class ChatViewModel(
             
             // Clear secure identity state (if used)
             try {
-                val identityManager = SecureIdentityStateManager(getApplication())
+                val identityManager = com.bitchat.android.identity.SecureIdentityStateManager(getApplication())
                 identityManager.clearIdentityData()
-        // Recreate mesh service with fresh identity
-        recreateMeshServiceAfterPanic()
-
-        Log.w(TAG, "🚨 PANIC MODE COMPLETED - New identity: ${meshService.myPeerID}")
-    }
-
-    /**
-     * Recreate the mesh service with a fresh identity after panic clear.
-     * This ensures the new cryptographic keys are used for a new peer ID.
-     */
-    private fun recreateMeshServiceAfterPanic() {
-        val oldPeerID = meshService.myPeerID
-
-        // Clear the holder so getOrCreate() returns a fresh instance
-        MeshServiceHolder.clear()
-
-        // Create fresh mesh service with new identity (keys were regenerated in clearAllCryptographicData)
-        val freshMeshService = MeshServiceHolder.getOrCreate(getApplication())
-
-        // Replace our reference and set up the new service
-        meshService = freshMeshService
-        meshService.delegate = this
-
-        // Restart mesh operations with new identity
-        meshService.startServices()
-        meshService.sendBroadcastAnnounce()
-
-        Log.d(
-            TAG,
-            "✅ Mesh service recreated. Old peerID: $oldPeerID, New peerID: ${meshService.myPeerID}"
-        )
-                Log.d(TAG, "âœ… Cleared secure identity state")
+                Log.d(TAG, "Ã¢Å“â€¦ Cleared secure identity state")
             } catch (e: Exception) {
                 Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
             }
-
-            // Clear FavoritesPersistenceService persistent relationships
-            try {
-                FavoritesPersistenceService.shared.clearAllFavorites()
-                Log.d(TAG, "✅ Cleared FavoritesPersistenceService relationships")
-            } catch (_: Exception) { }
             
-            Log.d(TAG, "âœ… Cleared all cryptographic data")
+            Log.d(TAG, "Ã¢Å“â€¦ Cleared all cryptographic data")
         } catch (e: Exception) {
-            Log.e(TAG, "âŒ Error clearing cryptographic data: ${e.message}")
+            Log.e(TAG, "Ã¢ÂÅ’ Error clearing cryptographic data: ${e.message}")
         }
     }
+    
 
+    
+
+    
+
+    
+
+    
     /**
      * Get participant count for a specific geohash (5-minute activity window)
      */
     fun geohashParticipantCount(geohash: String): Int {
-        return geohashViewModel.geohashParticipantCount(geohash)
+        return nostrGeohashService.geohashParticipantCount(geohash)
     }
-
+    
     /**
      * Begin sampling multiple geohashes for participant activity
      */
     fun beginGeohashSampling(geohashes: List<String>) {
-        geohashViewModel.beginGeohashSampling(geohashes)
+        nostrGeohashService.beginGeohashSampling(geohashes)
     }
-
+    
     /**
      * End geohash sampling
      */
     fun endGeohashSampling() {
-        geohashViewModel.endGeohashSampling()
+        nostrGeohashService.endGeohashSampling()
     }
+    
 
+    
+
+    
+
+    
+
+    
+
+    
+
+    
     /**
      * Check if a geohash person is teleported (iOS-compatible)
      */
     fun isPersonTeleported(pubkeyHex: String): Boolean {
-        return geohashViewModel.isPersonTeleported(pubkeyHex)
+        return nostrGeohashService.isPersonTeleported(pubkeyHex)
     }
-
+    
     /**
      * Start geohash DM with pubkey hex (iOS-compatible)
      */
     fun startGeohashDM(pubkeyHex: String) {
-        geohashViewModel.startGeohashDM(pubkeyHex) { convKey ->
-            showPrivateChatSheet(convKey)
+        nostrGeohashService.startGeohashDM(pubkeyHex) { convKey ->
+            startPrivateChat(convKey)
         }
     }
+    
 
+    
+
+    
     fun selectLocationChannel(channel: com.bitchat.android.geohash.ChannelID) {
-        geohashViewModel.selectLocationChannel(channel)
+        nostrGeohashService.selectLocationChannel(channel)
     }
-
+    
     /**
      * Block a user in geohash channels by their nickname
      */
     fun blockUserInGeohash(targetNickname: String) {
-        geohashViewModel.blockUserInGeohash(targetNickname)
+        nostrGeohashService.blockUserInGeohash(targetNickname)
     }
+    
 
+    
+
+    
+
+    
+
+    
     // MARK: - Navigation Management
     
     fun showAppInfo() {
@@ -1117,7 +708,15 @@ class ChatViewModel(
     fun hideAppInfo() {
         state.setShowAppInfo(false)
     }
-
+    
+    fun showSidebar() {
+        state.setShowSidebar(true)
+    }
+    
+    fun hideSidebar() {
+        state.setShowSidebar(false)
+    }
+    
     /**
      * Handle Android back navigation
      * Returns true if the back press was handled, false if it should be passed to the system
@@ -1129,6 +728,11 @@ class ChatViewModel(
                 hideAppInfo()
                 true
             }
+            // Close sidebar
+            state.getShowSidebarValue() -> {
+                hideSidebar()
+                true
+            }
             // Close password dialog
             state.getShowPasswordPromptValue() -> {
                 state.setShowPasswordPrompt(false)
@@ -1136,7 +740,7 @@ class ChatViewModel(
                 true
             }
             // Exit private chat
-            state.getSelectedPrivateChatPeerValue() != null || state.getPrivateChatSheetPeerValue() != null -> {
+            state.getSelectedPrivateChatPeerValue() != null -> {
                 endPrivateChat()
                 true
             }
@@ -1149,9 +753,9 @@ class ChatViewModel(
             else -> false
         }
     }
-
+    
     // MARK: - iOS-Compatible Color System
-
+    
     /**
      * Get consistent color for a mesh peer by ID (iOS-compatible)
      */
@@ -1160,7 +764,243 @@ class ChatViewModel(
         val seed = "noise:${peerID.lowercase()}"
         return colorForPeerSeed(seed, isDark).copy()
     }
-
+    
     /**
      * Get consistent color for a Nostr pubkey (iOS-compatible)
      */
+    fun colorForNostrPubkey(pubkeyHex: String, isDark: Boolean): androidx.compose.ui.graphics.Color {
+        return nostrGeohashService.colorForNostrPubkey(pubkeyHex, isDark)
+    }
+    // Transaction tracking map
+    private val transactionMessages = mutableMapOf<String, BitchatMessage>()
+    
+    /**
+     * Add system message (for Monero transactions, etc.)
+     * System messages are local notifications that don't leave the device
+     */
+    fun addSystemMessage(message: String) {
+        val systemMessage = BitchatMessage(
+            id = "system_${System.currentTimeMillis()}",
+            sender = "System",
+            content = message,
+            timestamp = Date(),
+            isRelay = false,
+            isSystemMessage = true,
+            senderPeerID = "system"
+        )
+        
+        Log.d(TAG, "Adding system message: $message")
+        
+        // Add to appropriate message list based on current context
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        val selectedLocationChannel = state.selectedLocationChannel.value
+        
+        when {
+            selectedPeer != null -> {
+                // Add to private chat context
+                addSystemMessageToPrivateChat(selectedPeer, systemMessage)
+            }
+            selectedLocationChannel is com.bitchat.android.geohash.ChannelID.Location -> {
+                // Add to main chat for location channels (system messages don't go to geohash)
+                messageManager.addMessage(systemMessage)
+            }
+            currentChannelValue != null -> {
+                // Add to current channel
+                addSystemMessageToChannel(currentChannelValue, systemMessage)
+            }
+            else -> {
+                // Add to main chat
+                messageManager.addMessage(systemMessage)
+            }
+        }
+    }
+    
+    /**
+     * Add system message to private chat
+     */
+    private fun addSystemMessageToPrivateChat(peerID: String, systemMessage: BitchatMessage) {
+        try {
+            val currentChats = state.getPrivateChatsValue().toMutableMap()
+            val peerMessages = currentChats[peerID]?.toMutableList() ?: mutableListOf()
+            peerMessages.add(systemMessage)
+            currentChats[peerID] = peerMessages
+            state.setPrivateChats(currentChats)
+            Log.d(TAG, "Added system message to private chat with $peerID")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add system message to private chat: ${e.message}")
+            // Fallback to main chat
+            messageManager.addMessage(systemMessage)
+        }
+    }
+    
+    /**
+     * Add system message to channel
+     */
+    private fun addSystemMessageToChannel(channel: String, systemMessage: BitchatMessage) {
+        try {
+            // Use channel manager to add message to channel
+            channelManager.addChannelMessage(channel, systemMessage, "system")
+            Log.d(TAG, "Added system message to channel $channel")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to add system message to channel: ${e.message}")
+            // Fallback to main chat
+            messageManager.addMessage(systemMessage)
+        }
+    }
+        
+    /**
+     * Update transaction status and modify existing transaction message if possible
+     */
+    fun updateTransactionStatus(txId: String, status: String) {
+        Log.d(TAG, "Updating transaction $txId status to: $status")
+        
+        // Try to find and update existing transaction message
+        val existingMessage = transactionMessages[txId]
+        if (existingMessage != null) {
+            updateExistingTransactionMessage(existingMessage, txId, status)
+        } else {
+            // Create new status message
+            val statusMessage = when (status.lowercase()) {
+                "confirmed" -> "Transaction $txId confirmed"
+                "failed" -> "Transaction $txId failed"
+                "pending" -> "Transaction $txId is pending"
+                "cancelled" -> "Transaction $txId was cancelled"
+                else -> "Transaction $txId status: $status"
+            }
+            addSystemMessage(statusMessage)
+        }
+    }
+    
+    /**
+     * Update existing transaction message content
+     */
+    private fun updateExistingTransactionMessage(message: BitchatMessage, txId: String, status: String) {
+        try {
+            val statusEmoji = when (status.lowercase()) {
+                "confirmed" -> "âœ…"
+                "failed" -> "âŒ"
+                "pending" -> "â³"
+                "cancelled" -> "ðŸš«"
+                else -> "â„¹ï¸"
+            }
+            
+            // Create updated message content
+            val originalContent = message.content.substringBefore(" (")
+            val updatedContent = "$originalContent ($statusEmoji $status)"
+            
+            // Create new message with updated content
+            val updatedMessage = message.copy(
+                content = updatedContent,
+                timestamp = Date()
+            )
+            
+            // Replace in appropriate message list
+            replaceMessageInCurrentContext(message, updatedMessage)
+            
+            // Update tracking map
+            transactionMessages[txId] = updatedMessage
+            
+            Log.d(TAG, "Updated transaction message for $txId: $updatedContent")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update existing transaction message: ${e.message}")
+            // Fallback to adding new status message
+            addSystemMessage("Transaction $txId status: $status")
+        }
+    }
+    
+    /**
+     * Replace a message in the current context (private chat, channel, or main)
+     */
+    private fun replaceMessageInCurrentContext(oldMessage: BitchatMessage, newMessage: BitchatMessage) {
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        
+        when {
+            selectedPeer != null -> {
+                // Replace in private chat
+                val currentChats = state.getPrivateChatsValue().toMutableMap()
+                val peerMessages = currentChats[selectedPeer]?.toMutableList() ?: return
+                val index = peerMessages.indexOfFirst { it.id == oldMessage.id }
+                if (index >= 0) {
+                    peerMessages[index] = newMessage
+                    currentChats[selectedPeer] = peerMessages
+                    state.setPrivateChats(currentChats)
+                }
+            }
+            currentChannelValue != null -> {
+                // Replace in channel - this would need channel manager support
+                // For now, just add new message
+                addSystemMessage(newMessage.content)
+            }
+            else -> {
+                // Replace in main chat
+                val currentMessages = state.getMessagesValue().toMutableList()
+                val index = currentMessages.indexOfFirst { it.id == oldMessage.id }
+                if (index >= 0) {
+                    currentMessages[index] = newMessage
+                    state.setMessages(currentMessages)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Track a transaction message for later status updates
+     */
+    fun trackTransactionMessage(txId: String, message: BitchatMessage) {
+        transactionMessages[txId] = message
+        Log.d(TAG, "Tracking transaction message for $txId")
+    }
+    
+    /**
+     * Add Monero transaction message with tracking
+     */
+    fun addMoneroTransactionMessage(txId: String, amount: String, recipientAddress: String) {
+        val content = "Sending $amount XMR... (â³ pending)"
+        val transactionMessage = BitchatMessage(
+            id = "tx_$txId",
+            sender = "System",
+            content = content,
+            timestamp = Date(),
+            isRelay = false,
+            isSystemMessage = true,
+            senderPeerID = "system"
+        )
+        
+        // Track for updates
+        transactionMessages[txId] = transactionMessage
+        
+        // Add to current context
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        
+        when {
+            selectedPeer != null -> {
+                addSystemMessageToPrivateChat(selectedPeer, transactionMessage)
+            }
+            currentChannelValue != null -> {
+                addSystemMessageToChannel(currentChannelValue, transactionMessage)
+            }
+            else -> {
+                messageManager.addMessage(transactionMessage)
+            }
+        }
+        
+        Log.d(TAG, "Added Monero transaction message for $txId: $amount XMR")
+    }
+    
+    /**
+     * Copy message to clipboard
+     */
+    fun copyMessageToClipboard(content: String) {
+        try {
+            val clipboard = getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Message", content)
+            clipboard.setPrimaryClip(clip)
+            addSystemMessage("Message copied to clipboard")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to copy to clipboard: ${e.message}")
+        }
+    }    
+}

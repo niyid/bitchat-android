@@ -5,6 +5,10 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -18,16 +22,35 @@ import com.m2049r.xmrwallet.util.Helper;
 /**
  * Enhanced Monero wallet manager for BitChat using Monerujo library
  * Handles wallet creation, transactions, balance management, and Bluetooth/Chat blob workflows
+ * Configuration is loaded from wallet.properties file
  */
 public class WalletSuite {
     private static final String TAG = "com.bitchat.android.monero.wallet.WalletSuite";
-    private static final String WALLET_NAME = "bitchat_wallet";
-    private static final String WALLET_PASSWORD = "bitchat_secure_pass"; // In production, use secure storage / key derivation
-    private static final String WALLET_LANGUAGE = "English";
+    private static final String PROPERTIES_FILE = "wallet.properties";
+    
+    // Default values (fallbacks)
+    private static final String DEFAULT_WALLET_NAME = "bitchat_wallet";
+    private static final String DEFAULT_WALLET_PASSWORD = "bitchat_secure_pass";
+    private static final String DEFAULT_WALLET_LANGUAGE = "English";
+    private static final String DEFAULT_DAEMON_ADDRESS = "http://rpc_user:rpc_password@172.20.10.5";
+    private static final int DEFAULT_DAEMON_PORT = 38081;
+    private static final String DEFAULT_DAEMON_USERNAME = "rpc_user";
+    private static final String DEFAULT_DAEMON_PASSWORD = "rpc_password";
+    private static final int DEFAULT_NETWORK_TYPE = 2; // stagenet
 
     private static volatile boolean nativeOk = false;
     private static volatile boolean nativeChecked = false;
     private static volatile WalletSuite instance;
+
+    // Configuration properties
+    private String walletName;
+    private String walletPassword;
+    private String walletLanguage;
+    private String daemonAddress;
+    private int daemonPort;
+    private String daemonUsername;
+    private String daemonPassword;
+    private int networkType;
 
     private WalletSuite() {}
 
@@ -61,12 +84,6 @@ public class WalletSuite {
     private boolean isInitialized = false;
     private boolean isSyncing = false;
 
-    private String daemonAddress = "node.xmr.to";
-    private int daemonPort = 28080;
-    private String daemonUsername = "";
-    private String daemonPassword = "";
-    private boolean isTestnet = false;
-
     private WalletStatusListener statusListener;
     private TransactionListener transactionListener;
 
@@ -87,6 +104,7 @@ public class WalletSuite {
         this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
         this.mainHandler = new Handler(Looper.getMainLooper());
+        loadConfiguration();
     }
 
     public static synchronized WalletSuite getInstance(Context context) {
@@ -100,15 +118,79 @@ public class WalletSuite {
         return instance;
     }
 
-    public void setDaemonConfig(String address, int port, String username, String password, boolean testnet) {
+    private void loadConfiguration() {
+        Properties props = new Properties();
+        
+        // Try loading from external storage first (for easy updates)
+        File externalConfig = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
+        
+        // Try loading from internal assets (bundled with app)
+        File internalConfig = new File(context.getFilesDir(), PROPERTIES_FILE);
+        
+        boolean configLoaded = false;
+        
+        // Priority 1: External storage (user-modifiable)
+        if (externalConfig.exists()) {
+            try (FileInputStream fis = new FileInputStream(externalConfig)) {
+                props.load(fis);
+                configLoaded = true;
+                Log.i(TAG, "Loaded configuration from external storage: " + externalConfig.getAbsolutePath());
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to load external config file", e);
+            }
+        }
+        
+        // Priority 2: Internal storage
+        if (!configLoaded && internalConfig.exists()) {
+            try (FileInputStream fis = new FileInputStream(internalConfig)) {
+                props.load(fis);
+                configLoaded = true;
+                Log.i(TAG, "Loaded configuration from internal storage: " + internalConfig.getAbsolutePath());
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to load internal config file", e);
+            }
+        }
+        
+        // Priority 3: Assets folder (bundled with APK)
+        if (!configLoaded) {
+            try (InputStream is = context.getAssets().open(PROPERTIES_FILE)) {
+                props.load(is);
+                configLoaded = true;
+                Log.i(TAG, "Loaded configuration from assets");
+            } catch (IOException e) {
+                Log.w(TAG, "No config file found in assets, using defaults", e);
+            }
+        }
+        
+        // Load properties with fallback to defaults
+        walletName = props.getProperty("wallet.name", DEFAULT_WALLET_NAME);
+        walletPassword = props.getProperty("wallet.password", DEFAULT_WALLET_PASSWORD);
+        walletLanguage = props.getProperty("wallet.language", DEFAULT_WALLET_LANGUAGE);
+        daemonAddress = props.getProperty("daemon.address", DEFAULT_DAEMON_ADDRESS);
+        daemonPort = Integer.parseInt(props.getProperty("daemon.port", String.valueOf(DEFAULT_DAEMON_PORT)));
+        daemonUsername = props.getProperty("daemon.username", DEFAULT_DAEMON_USERNAME);
+        daemonPassword = props.getProperty("daemon.password", DEFAULT_DAEMON_PASSWORD);
+        networkType = Integer.parseInt(props.getProperty("network.type", String.valueOf(DEFAULT_NETWORK_TYPE)));
+        
+        Log.d(TAG, "Configuration loaded - Network: " + getNetworkName() + ", Daemon: " + daemonAddress + ":" + daemonPort);
+    }
+    
+    private String getNetworkName() {
+        return (networkType == 1) ? "testnet" : (networkType == 2) ? "stagenet" : "mainnet";
+    }
+
+    public void setDaemonConfig(String address, int port, String username, String password, int networkType) {
         this.daemonAddress = address;
         this.daemonPort = port;
         this.daemonUsername = username;
         this.daemonPassword = password;
-        this.isTestnet = testnet;
+        this.networkType = networkType;
     }
 
     public void initializeWallet(int networkType) {
+        // Use provided networkType or fall back to configured value
+        int actualNetworkType = (networkType > 0) ? networkType : this.networkType;
+        
         executorService.execute(() -> {
             try {
                 File dir = context.getDir("wallets", Context.MODE_PRIVATE);
@@ -124,7 +206,7 @@ public class WalletSuite {
                     return;
                 }
 
-                String walletPath = new File(dir, WALLET_NAME).getAbsolutePath();
+                String walletPath = new File(dir, walletName).getAbsolutePath();
                 Log.d(TAG, "Wallet path: " + walletPath);
 
                 File keysFile = new File(walletPath + ".keys");
@@ -135,24 +217,24 @@ public class WalletSuite {
 
                 if (keysFile.exists() && cacheFile.exists()) {
                     Log.d(TAG, "Opening existing wallet...");
-                    wallet = mgr.openWallet(walletPath, WALLET_PASSWORD, 1);
+                    wallet = mgr.openWallet(walletPath, walletPassword, 1);
                 } else if (keysFile.exists() || cacheFile.exists() || addrFile.exists()) {
                     backupFile(keysFile);
                     backupFile(cacheFile);
                     backupFile(addrFile);
 
-                    Log.d(TAG, "Recreating wallet (networkType=" + networkType + ")");
-                    wallet = mgr.createWallet(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
+                    Log.d(TAG, "Recreating wallet (networkType=" + actualNetworkType + ")");
+                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, actualNetworkType);
                 } else {
-                    Log.d(TAG, "Creating new wallet (networkType=" + networkType + ")");
-                    wallet = mgr.createWallet(walletPath, WALLET_PASSWORD, WALLET_LANGUAGE, networkType);
+                    Log.d(TAG, "Creating new wallet (networkType=" + actualNetworkType + ")");
+                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, actualNetworkType);
                 }
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
                     isInitialized = true;
-                    String networkName = (networkType == 1) ? "testnet"
-                                       : (networkType == 2) ? "stagenet"
+                    String networkName = (actualNetworkType == 1) ? "testnet"
+                                       : (actualNetworkType == 2) ? "stagenet"
                                        : "mainnet";
                     Log.i(TAG, "Wallet initialized successfully (" + networkName + ")");
                     notifyWalletInitialized(true, "Wallet initialized successfully (" + networkName + ")");
@@ -183,12 +265,15 @@ public class WalletSuite {
     }
 
     public void initializeWalletFromSeed(String seedPhrase, long restoreHeight, int nettype) {
+        // Use provided nettype or fall back to configured value
+        int actualNetworkType = (nettype > 0) ? nettype : this.networkType;
+        
         executorService.execute(() -> {
             try {
                 String walletPath = getWalletPath();
 
                 WalletManager mgr = WalletManager.getInstance();
-                wallet = mgr.recoveryWallet(walletPath, WALLET_PASSWORD, seedPhrase, nettype, restoreHeight);
+                wallet = mgr.recoveryWallet(walletPath, walletPassword, seedPhrase, actualNetworkType, restoreHeight);
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
@@ -213,7 +298,7 @@ public class WalletSuite {
         if (!walletDir.exists()) {
             walletDir.mkdirs();
         }
-        return new File(walletDir, WALLET_NAME).getAbsolutePath();
+        return new File(walletDir, walletName).getAbsolutePath();
     }
 
     public void getAddress(AddressCallback callback) {
@@ -412,6 +497,7 @@ public class WalletSuite {
         executorService.execute(() -> {
             try {
                 isSyncing = true;
+                Log.d(TAG, "Synchronization initiated...");
                 syncWallet(new SyncCallback() {
                     @Override
                     public void onSuccess(String message) {
@@ -446,10 +532,6 @@ public class WalletSuite {
         boolean connected = mgr.setDaemonAddress(daemonAddress, daemonPort);
         if (!connected) {
             Log.w(TAG, "Failed to connect to daemon");
-        }
-
-        if (!daemonUsername.isEmpty()) {
-            wallet.setDaemonLogin(daemonUsername, daemonPassword);
         }
 
         Log.d(TAG, "Wallet setup completed");
@@ -661,5 +743,62 @@ public class WalletSuite {
             return null;
         }
     }
-}
 
+    // ==================== CONFIGURATION UTILITIES ====================
+
+    /**
+     * Copy the default configuration from assets to external storage
+     * This allows users to modify the configuration file
+     */
+    public static void copyDefaultConfigToExternalStorage(Context context) {
+        try {
+            File externalConfig = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
+            if (externalConfig.exists()) {
+                Log.i(TAG, "Configuration file already exists in external storage");
+                return;
+            }
+
+            InputStream inputStream = context.getAssets().open(PROPERTIES_FILE);
+            java.io.FileOutputStream outputStream = new java.io.FileOutputStream(externalConfig);
+
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = inputStream.read(buffer)) > 0) {
+                outputStream.write(buffer, 0, length);
+            }
+
+            outputStream.close();
+            inputStream.close();
+
+            Log.i(TAG, "Default configuration copied to: " + externalConfig.getAbsolutePath());
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to copy default configuration", e);
+        }
+    }
+
+    /**
+     * Get the current configuration file path being used
+     */
+    public String getCurrentConfigPath() {
+        File externalConfig = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
+        if (externalConfig.exists()) {
+            return externalConfig.getAbsolutePath();
+        }
+        
+        File internalConfig = new File(context.getFilesDir(), PROPERTIES_FILE);
+        if (internalConfig.exists()) {
+            return internalConfig.getAbsolutePath();
+        }
+        
+        return "assets/" + PROPERTIES_FILE;
+    }
+
+    /**
+     * Reload configuration from file
+     * Useful after user modifies the configuration file
+     */
+    public void reloadConfiguration() {
+        loadConfiguration();
+        Log.i(TAG, "Configuration reloaded from: " + getCurrentConfigPath());
+    }
+}

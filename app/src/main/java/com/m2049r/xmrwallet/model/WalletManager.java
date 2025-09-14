@@ -89,10 +89,5 @@ public class WalletManager {
     public String getErrorString() {
         return getErrorStringJ();
     }
-
-    /* ===== STATIC LOADER ===== */
-    static {
-        System.loadLibrary("monerujo");
-    }
 }
 
