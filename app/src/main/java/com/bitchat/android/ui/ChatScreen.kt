@@ -74,16 +74,16 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val mentionSuggestions by viewModel.mentionSuggestions.observeAsState(emptyList())
     val showAppInfo by viewModel.showAppInfo.observeAsState(false)
 
-    // Monero-related state
-    var walletSuite = viewModel.walletSuite
-    var moneroMessageHandler = viewModel.moneroMessageHandler
-    var isMoneroModeActive = viewModel.isMoneroModeActive
-    var currentBalance = viewModel.currentBalance
-    var isSyncing = viewModel.isSyncing
-    var syncProgress = viewModel.syncProgress
-    var walletStatusMessage = viewModel.walletStatusMessage
-    var isWalletReady = viewModel.isWalletReady
-    var peerMoneroAddresses = viewModel.peerMoneroAddresses
+    // Monero-related state - FIXED: Properly observe ViewModel state
+    val walletSuite = viewModel.walletSuite
+    val moneroMessageHandler = viewModel.moneroMessageHandler
+    val isMoneroModeActive = viewModel.isMoneroModeActive
+    val currentBalance = viewModel.currentBalance
+    val isSyncing = viewModel.isSyncing
+    val syncProgress = viewModel.syncProgress
+    val walletStatusMessage = viewModel.walletStatusMessage
+    val isWalletReady = viewModel.isWalletReady
+    val peerMoneroAddresses = viewModel.peerMoneroAddresses
     var myWalletAddress by remember { mutableStateOf<String?>(null) }
 
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
@@ -97,107 +97,80 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var forceScrollToBottom by remember { mutableStateOf(false) }
     var isScrolledUp by remember { mutableStateOf(false) }
 
-    // Initialize Monero components
+    // Initialize Monero components - FIXED: Use ViewModel methods instead of direct assignment
     LaunchedEffect(Unit) {
-        walletSuite = WalletSuite.getInstance(context).apply {
-            setWalletStatusListener(object : WalletSuite.WalletStatusListener {
-                override fun onWalletInitialized(success: Boolean, message: String) {
-                    isWalletReady = success
-                    Log.d(TAG, "Wallet is being initialized")
-                    if (success) {
-                        walletStatusMessage = "Wallet ready"
-                        getBalance(object : WalletSuite.BalanceCallback {
-                            override fun onSuccess(balance: Long, unlockedBalance: Long) {
-                                Log.d(TAG, "Wallet successfully initialized")
-                                currentBalance = WalletSuite.convertAtomicToXmr(unlockedBalance)
-                            }
-                            override fun onError(error: String) {
-                                Log.d(TAG, "Wallet initialization failed")
-                                walletStatusMessage = "Balance error: $error"
-                            }
-                        })
-                        
-                        // Get wallet address and prepare for auto-sharing
-                        getAddress(object : WalletSuite.AddressCallback {
-                            override fun onSuccess(address: String) {
-                                myWalletAddress = address
-                                // Auto-share address with all connected peers
-                                shareAddressWithConnectedPeers(address, connectedPeers, viewModel)
-                            }
-                            override fun onError(error: String) {
-                                walletStatusMessage = "Address error: $error"
-                            }
-                        })
-                    } else {
-                        walletStatusMessage = "Wallet failed: $message"
-                    }
-                }
-
-                override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
-                    currentBalance = WalletSuite.convertAtomicToXmr(unlockedBalance)
-                }
-
-                override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
-                    isSyncing = percentDone < 1.0
-                    syncProgress = (percentDone * 100).toInt()
+        viewModel.initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
+            override fun onWalletInitialized(success: Boolean, message: String) {
+                viewModel.updateWalletReadyState(success)
+                Log.d(TAG, "Wallet is being initialized")
+                if (success) {
+                    viewModel.updateWalletStatusMessage("Wallet ready")
+                    walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
+                        override fun onSuccess(balance: Long, unlockedBalance: Long) {
+                            Log.d(TAG, "Wallet successfully initialized")
+                            viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+                        }
+                        override fun onError(error: String) {
+                            Log.d(TAG, "Wallet initialization failed")
+                            viewModel.updateWalletStatusMessage("Balance error: $error")
+                        }
+                    })
                     
-                    if (isSyncing) {
-                        walletStatusMessage = "Syncing: $syncProgress% ($height/$targetHeight)"
-                    } else {
-                        walletStatusMessage = "Wallet synchronized"
-                    }
+                    // Get wallet address and prepare for auto-sharing
+                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                        override fun onSuccess(address: String) {
+                            myWalletAddress = address
+                            // Auto-share address with all connected peers
+                            shareAddressWithConnectedPeers(address, connectedPeers, viewModel)
+                        }
+                        override fun onError(error: String) {
+                            viewModel.updateWalletStatusMessage("Address error: $error")
+                        }
+                    })
+                } else {
+                    viewModel.updateWalletStatusMessage("Wallet failed: $message")
                 }
-            })
+            }
 
-            setTransactionListener(object : WalletSuite.TransactionListener {
-                override fun onTransactionCreated(txId: String, amount: Long) {
-                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
-                    viewModel.addSystemMessage("ðŸ’° Transaction created: $amountXmr XMR (tx: $txId)")
+            override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
+                viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+            }
+
+            override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
+                val syncing = percentDone < 1.0
+                val progress = (percentDone * 100).toInt()
+                
+                viewModel.updateSyncState(syncing, progress)
+                
+                if (syncing) {
+                    viewModel.updateWalletStatusMessage("Syncing: $progress% ($height/$targetHeight)")
+                } else {
+                    viewModel.updateWalletStatusMessage("Wallet synchronized")
                 }
+            }
+        })
 
-                override fun onTransactionConfirmed(txId: String) {
-                    viewModel.updateTransactionStatus(txId, "confirmed")
-                    viewModel.addSystemMessage("âœ… Transaction confirmed: $txId")
-                }
+        viewModel.initializeMoneroMessageHandler(object : MoneroMessageHandler.MoneroMessageListener {
+            override fun onPaymentReceived(payment: MoneroMessageHandler.MoneroPaymentMessage) {
+                val paymentMessage = "💰 Received ${payment.amount} XMR from ${payment.fromUser}"
+                viewModel.addSystemMessage(paymentMessage)
+            }
 
-                override fun onTransactionFailed(txId: String, error: String) {
-                    viewModel.updateTransactionStatus(txId, "failed")
-                    viewModel.addSystemMessage("âŒ Transaction failed: $txId - $error")
-                }
+            override fun onAddressShared(address: String, fromUser: String) {
+                viewModel.addPeerMoneroAddress(fromUser, address)
+                viewModel.addSystemMessage("📘 $fromUser shared Monero address")
+            }
 
-                override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
-                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
-                    val status = if (isConfirmed) "confirmed" else "pending"
-                    viewModel.addSystemMessage("ðŸ’° Output received: $amountXmr XMR ($status) - tx: $txHash")
-                }
-            })
+            override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
+                val requestMessage = "💳 ${request.fromUser} requested ${request.amount} XMR" +
+                    if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
+                viewModel.addSystemMessage(requestMessage)
+            }
 
-            initializeWallet(1)
-        }
-
-        moneroMessageHandler = MoneroMessageHandler().apply {
-            setMessageListener(object : MoneroMessageHandler.MoneroMessageListener {
-                override fun onPaymentReceived(payment: MoneroMessageHandler.MoneroPaymentMessage) {
-                    val paymentMessage = "ðŸ’° Received ${payment.amount} XMR from ${payment.fromUser}"
-                    viewModel.addSystemMessage(paymentMessage)
-                }
-
-                override fun onAddressShared(address: String, fromUser: String) {
-                    peerMoneroAddresses = peerMoneroAddresses + (fromUser to address)
-                    viewModel.addSystemMessage("ðŸ”‘ $fromUser shared Monero address")
-                }
-
-                override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
-                    val requestMessage = "ðŸ’³ ${request.fromUser} requested ${request.amount} XMR" +
-                        if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
-                    viewModel.addSystemMessage(requestMessage)
-                }
-
-                override fun onPaymentStatusUpdated(txId: String, status: String) {
-                    viewModel.updateTransactionStatus(txId, status)
-                }
-            })
-        }
+            override fun onPaymentStatusUpdated(txId: String, status: String) {
+                viewModel.updateTransactionStatus(txId, status)
+            }
+        })
     }
 
     // Auto-share wallet address with newly connected peers
@@ -314,12 +287,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 viewModel = viewModel,
                                 onSuccess = {
                                     messageText = TextFieldValue("")
-                                    isMoneroModeActive = false
+                                    viewModel.isMoneroModeActive = false
                                     forceScrollToBottom = !forceScrollToBottom
                                 },
                                 onError = { error ->
                                     // Handle error (show toast or error message)
-                                    viewModel.addSystemMessage("âŒ Payment error: $error")
+                                    viewModel.addSystemMessage("❌ Payment error: $error")
                                 }
                             )
                         } else {
@@ -356,7 +329,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 isMoneroModeActive = isMoneroModeActive,
                 onMoneroModeToggle = { 
                     if (canReceiveMonero && isWalletReady) {
-                        isMoneroModeActive = !isMoneroModeActive 
+                        viewModel.isMoneroModeActive = !isMoneroModeActive
                     }
                 },
                 canReceiveMonero = canReceiveMonero,
@@ -553,9 +526,9 @@ private fun handleMoneroSend(
                     // base64Blob is already Base64 encoded from wallet side
                     val paymentMessage = "[XMR_TX_BLOB]$base64Blob"
                     viewModel.sendDirectMessage(selectedPrivatePeer, paymentMessage)
-
+                    Log.d(TAG, "Sending XMR ($amount) to peer: $txId")
                     viewModel.addSystemMessage(
-                        "ðŸ’° Created tx for $amount XMR and sent to peer (pending broadcast) â€” txId: $txId"
+                        "💰 Created tx for $amount XMR and sent to peer (pending broadcast) – txId: $txId"
                     )
 
                     onSuccess()
@@ -995,7 +968,7 @@ private fun AboutSheet(
                 
                 features.forEach { feature ->
                     Text(
-                        text = "â€¢ $feature",
+                        text = "• $feature",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
@@ -1041,7 +1014,7 @@ private fun LocationChannelItem(
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = "$distance â€¢ $memberCount members",
+                    text = "$distance • $memberCount members",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )

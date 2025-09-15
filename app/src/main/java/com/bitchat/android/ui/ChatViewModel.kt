@@ -119,7 +119,7 @@ class ChatViewModel(
     var moneroMessageHandler by mutableStateOf(MoneroMessageHandler())
         private set
     var isMoneroModeActive by mutableStateOf(false) 
-        private set
+        
     var currentBalance by mutableStateOf("0.000000") 
         private set
     var isSyncing by mutableStateOf(false) 
@@ -199,7 +199,63 @@ class ChatViewModel(
             }
         }
     }
-    
+
+    fun initializeWalletSuite(context: Context, listener: WalletSuite.WalletStatusListener) {
+        walletSuite = WalletSuite.getInstance(context).apply {
+            setWalletStatusListener(listener)
+            setTransactionListener(object : WalletSuite.TransactionListener {
+                override fun onTransactionCreated(txId: String, amount: Long) {
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                    addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
+                }
+
+                override fun onTransactionConfirmed(txId: String) {
+                    updateTransactionStatus(txId, "confirmed")
+                    addSystemMessage("✅ Transaction confirmed: $txId")
+                }
+
+                override fun onTransactionFailed(txId: String, error: String) {
+                    updateTransactionStatus(txId, "failed")
+                    addSystemMessage("❌ Transaction failed: $txId - $error")
+                }
+
+                override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                    val status = if (isConfirmed) "confirmed" else "pending"
+                    addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
+                }
+            })
+            initializeWallet(1)
+        }
+    }
+
+    fun initializeMoneroMessageHandler(listener: MoneroMessageHandler.MoneroMessageListener) {
+        moneroMessageHandler = MoneroMessageHandler().apply {
+            setMessageListener(listener)
+        }
+    }
+
+    fun updateWalletReadyState(ready: Boolean) {
+        isWalletReady = ready
+    }
+
+    fun updateCurrentBalance(balance: String) {
+        currentBalance = balance
+    }
+
+    fun updateSyncState(syncing: Boolean, progress: Int) {
+        isSyncing = syncing
+        syncProgress = progress
+    }
+
+    fun updateWalletStatusMessage(message: String) {
+        walletStatusMessage = message
+    }
+
+    fun addPeerMoneroAddress(peer: String, address: String) {
+        _peerMoneroAddresses.value = _peerMoneroAddresses.value + (peer to address)
+    }
+
     override fun onCleared() {
         super.onCleared()
         // Note: Mesh service lifecycle is now managed by MainActivity
