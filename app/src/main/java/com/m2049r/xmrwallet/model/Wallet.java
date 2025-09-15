@@ -105,7 +105,7 @@ public class Wallet {
 
     // Transaction operations
     public native String submitTransaction(String txData);
-    public native PendingTransaction createTransaction(String dstAddr, String paymentId, long amount, int mixinCount, int priority);
+    public native PendingTransaction createTransactionJ(String dstAddr, String paymentId, long amount, int mixinCount, int priority);
     public native PendingTransaction createSweepTransaction(String dstAddr, String paymentId, int mixinCount, int priority, int accountIndex);
     public native PendingTransaction createSweepUnmixableTransaction();
     public native void disposeTransaction(PendingTransaction pendingTransaction);
@@ -203,6 +203,10 @@ public class Wallet {
 
     public String getAddress() {
         return getAddressJ();
+    }
+    
+    public PendingTransaction createTransaction(String dstAddr, String paymentId, long amount, int mixinCount, int priority) {
+        return createTransactionJ(dstAddr, paymentId, amount, mixinCount, priority);
     }
     
     public void setListener(WalletListener listener) {
