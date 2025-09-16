@@ -19,17 +19,18 @@ class BluetoothConnectionTracker(
 ) {
     
     companion object {
-        private const val TAG = "BluetoothConnectionTracker"
-        private const val CONNECTION_RETRY_DELAY = com.bitchat.android.util.AppConstants.Mesh.CONNECTION_RETRY_DELAY_MS
-        private const val MAX_CONNECTION_ATTEMPTS = com.bitchat.android.util.AppConstants.Mesh.MAX_CONNECTION_ATTEMPTS
-        private const val CLEANUP_DELAY = com.bitchat.android.util.AppConstants.Mesh.CONNECTION_CLEANUP_DELAY_MS
-        private const val CLEANUP_INTERVAL = com.bitchat.android.util.AppConstants.Mesh.CONNECTION_CLEANUP_INTERVAL_MS // 30 seconds
+        private const val TAG = "com.bitchat.BluetoothConnectionTracker"
+        private const val CONNECTION_RETRY_DELAY = 5000L
+        private const val MAX_CONNECTION_ATTEMPTS = 3
+        private const val CLEANUP_DELAY = 500L
+        private const val CLEANUP_INTERVAL = 30000L // 30 seconds
     }
     
     // Connection tracking - reduced memory footprint
     private val connectedDevices = ConcurrentHashMap<String, DeviceConnection>()
     private val subscribedDevices = CopyOnWriteArrayList<BluetoothDevice>()
     val addressPeerMap = ConcurrentHashMap<String, String>()
+    
     // RSSI tracking from scan results (for devices we discover but may connect as servers)
     private val scanRSSI = ConcurrentHashMap<String, Int>()
     
@@ -48,8 +49,7 @@ class BluetoothConnectionTracker(
         val characteristic: BluetoothGattCharacteristic? = null,
         val rssi: Int = Int.MIN_VALUE,
         val isClient: Boolean = false,
-        val connectedAt: Long = System.currentTimeMillis(),
-        val peerID: String? = null
+        val connectedAt: Long = System.currentTimeMillis()
     )
     
     /**
@@ -166,14 +166,6 @@ class BluetoothConnectionTracker(
     fun isDeviceConnected(deviceAddress: String): Boolean {
         return connectedDevices.containsKey(deviceAddress)
     }
-
-    /**
-     * Check if a peer is already connected (by PeerID)
-     */
-    fun isPeerConnected(peerID: String): Boolean {
-        // Only consider actual connected devices that have identified themselves
-        return connectedDevices.values.any { it.peerID == peerID }
-    }
     
     /**
      * Check if connection attempt is allowed
@@ -202,25 +194,13 @@ class BluetoothConnectionTracker(
             }
             
             // Update connection attempt atomically
-            // If the previous attempt window expired, reset backoff to 1; otherwise increment
-            val attempts = if (currentAttempt?.isExpired() == true) 1 else (currentAttempt?.attempts ?: 0) + 1
+            val attempts = (currentAttempt?.attempts ?: 0) + 1
             pendingConnections[deviceAddress] = ConnectionAttempt(attempts)
             Log.d(TAG, "Tracker: Added pending connection for $deviceAddress (attempts: $attempts)")
             return true
         }
     }
     
-    /**
-     * Disconnect a specific device (by MAC address)
-     */
-    fun disconnectDevice(deviceAddress: String) {
-        connectedDevices[deviceAddress]?.gatt?.let {
-            try { it.disconnect() } catch (_: Exception) { }
-        }
-        cleanupDeviceConnection(deviceAddress)
-        Log.d(TAG, "Requested disconnect for $deviceAddress")
-    }
-
     /**
      * Remove a pending connection
      */
@@ -236,61 +216,29 @@ class BluetoothConnectionTracker(
     /**
      * Check if connection limit is reached
      */
-    /**
-     * Check if a new client connection is allowed based on limits
-     */
-    fun canConnectAsClient(maxOverall: Int, maxClient: Int): Boolean {
-        val total = connectedDevices.size
-        val clients = connectedDevices.values.count { it.isClient }
-        return total < maxOverall && clients < maxClient
+    fun isConnectionLimitReached(): Boolean {
+        return connectedDevices.size >= powerManager.getMaxConnections()
     }
     
     /**
-     * Calculate which connections should be evicted to satisfy limits.
-     * Logic:
-     * 1. Enforce strict role limits (maxClient, maxServer) - evict oldest excess.
-     * 2. Enforce overall limit (maxOverall) - evict oldest remaining, preferring clients.
+     * Enforce connection limits by disconnecting oldest connections
      */
-    fun getConnectionsToEvict(maxOverall: Int, maxServer: Int, maxClient: Int): List<DeviceConnection> {
-        val toEvict = mutableSetOf<DeviceConnection>()
-        val currentDevices = connectedDevices.values.toList()
-        
-        // 1. Enforce Role Limits
-        val clients = currentDevices.filter { it.isClient }.sortedBy { it.connectedAt }
-        if (clients.size > maxClient) {
-            toEvict.addAll(clients.take(clients.size - maxClient))
-        }
-        
-        val servers = currentDevices.filter { !it.isClient }.sortedBy { it.connectedAt }
-        if (servers.size > maxServer) {
-            toEvict.addAll(servers.take(servers.size - maxServer))
-        }
-        
-        // 2. Enforce Overall Limit
-        // Count how many would remain after the above evictions
-        val remaining = currentDevices.filter { !toEvict.contains(it) }
-        if (remaining.size > maxOverall) {
-            val excessCount = remaining.size - maxOverall
+    fun enforceConnectionLimits() {
+        val maxConnections = powerManager.getMaxConnections()
+        if (connectedDevices.size > maxConnections) {
+            Log.i(TAG, "Enforcing connection limit: ${connectedDevices.size} > $maxConnections")
             
-            // Explicitly prefer evicting clients first
-            val clientCandidates = remaining.filter { it.isClient }.sortedBy { it.connectedAt }
-            val serverCandidates = remaining.filter { !it.isClient }.sortedBy { it.connectedAt }
+            // Disconnect oldest client connections first
+            val sortedConnections = connectedDevices.values
+                .filter { it.isClient }
+                .sortedBy { it.connectedAt }
             
-            var needed = excessCount
-            
-            // Take from clients first
-            val fromClients = clientCandidates.take(needed)
-            toEvict.addAll(fromClients)
-            needed -= fromClients.size
-            
-            // If still need more, take from servers
-            if (needed > 0) {
-                val fromServers = serverCandidates.take(needed)
-                toEvict.addAll(fromServers)
+            val toDisconnect = sortedConnections.take(connectedDevices.size - maxConnections)
+            toDisconnect.forEach { deviceConn ->
+                Log.d(TAG, "Disconnecting ${deviceConn.device.address} due to connection limit")
+                deviceConn.gatt?.disconnect()
             }
         }
-        
-        return toEvict.toList()
     }
     
     /**
@@ -301,6 +249,7 @@ class BluetoothConnectionTracker(
             subscribedDevices.removeAll { it.address == deviceAddress }
             addressPeerMap.remove(deviceAddress)
         }
+        pendingConnections.remove(deviceAddress)
         Log.d(TAG, "Cleaned up device connection for $deviceAddress")
     }
     
@@ -335,7 +284,7 @@ class BluetoothConnectionTracker(
         pendingConnections.clear()
         scanRSSI.clear()
     }
-
+    
     /**
      * Start periodic cleanup of expired connections
      */

@@ -18,11 +18,11 @@ import kotlin.collections.mutableSetOf
 class SecurityManager(private val encryptionService: EncryptionService, private val myPeerID: String) {
     
     companion object {
-        private const val TAG = "SecurityManager"
-        private const val MESSAGE_TIMEOUT = com.bitchat.android.util.AppConstants.Security.MESSAGE_TIMEOUT_MS // 5 minutes (same as iOS)
-        private const val CLEANUP_INTERVAL = com.bitchat.android.util.AppConstants.Security.CLEANUP_INTERVAL_MS // 5 minutes
-        private const val MAX_PROCESSED_MESSAGES = com.bitchat.android.util.AppConstants.Security.MAX_PROCESSED_MESSAGES
-        private const val MAX_PROCESSED_KEY_EXCHANGES = com.bitchat.android.util.AppConstants.Security.MAX_PROCESSED_KEY_EXCHANGES
+        private const val TAG = "com.bitchat.SecurityManager"
+        private const val MESSAGE_TIMEOUT = 300000L // 5 minutes (same as iOS)
+        private const val CLEANUP_INTERVAL = 300000L // 5 minutes
+        private const val MAX_PROCESSED_MESSAGES = 10000
+        private const val MAX_PROCESSED_KEY_EXCHANGES = 1000
     }
     
     // Security tracking
@@ -41,7 +41,7 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
     }
     
     /**
-     * Validate packet security (timestamp, replay attacks, duplicates, signatures)
+     * Validate packet security (timestamp, replay attacks, duplicates)
      */
     fun validatePacket(packet: BitchatPacket, peerID: String): Boolean {
         // Skip validation for our own packets
@@ -50,36 +50,38 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
             return false
         }
         
+        // TTL check
+        if (packet.ttl == 0u.toUByte()) {
+            Log.d(TAG, "Dropping packet with TTL 0")
+            return false
+        }
+        
+        // Validate packet payload
+        if (packet.payload.isEmpty()) {
+            Log.d(TAG, "Dropping packet with empty payload")
+            return false
+        }
+        
         // Replay attack protection (same 5-minute window as iOS)
         val currentTime = System.currentTimeMillis()
-        val messageType = MessageType.fromValue(packet.type)
-
+        val packetTime = packet.timestamp.toLong()
+        val timeDiff = kotlin.math.abs(currentTime - packetTime)
+        
+        if (timeDiff > MESSAGE_TIMEOUT) {
+            Log.d(TAG, "Dropping old packet from $peerID, time diff: ${timeDiff/1000}s")
+            return false
+        }
+        
         // Duplicate detection
         val messageID = generateMessageID(packet, peerID)
-        
         if (processedMessages.contains(messageID)) {
-            // Check for ANNOUNCE exception: allow if it looks like a direct neighbor (max TTL)
-            // This ensures we catch the "first announce" on a new connection for binding,
-            // while still dropping looped/relayed duplicates.
-            val isFreshAnnounce = messageType == MessageType.ANNOUNCE &&
-                    packet.ttl >= com.bitchat.android.util.AppConstants.MESSAGE_TTL_HOPS
-
-            if (!isFreshAnnounce) {
-                Log.d(TAG, "Dropping duplicate packet: $messageID")
-                return false
-            }
-            Log.d(TAG, "Allowing duplicate ANNOUNCE from direct neighbor: $messageID")
+            Log.d(TAG, "Dropping duplicate packet: $messageID")
+            return false
         }
-
+        
         // Add to processed messages
         processedMessages.add(messageID)
         messageTimestamps[messageID] = currentTime
-        
-        // Enforce mandatory signature verification
-        if (!verifyPacketSignature(packet, peerID)) {
-            Log.w(TAG, "Dropping packet from $peerID due to signature verification failure")
-            return false
-        }
         
         Log.d(TAG, "Packet validation passed for $peerID, messageID: $messageID")
         return true
@@ -102,17 +104,9 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
         // Skip our own handshake messages
         if (peerID == myPeerID) return false
 
-        // If we already have an established session but the peer is initiating a new handshake,
-        // drop the existing session so we can re-establish cleanly.
-        var forcedRehandshake = false
         if (encryptionService.hasEstablishedSession(peerID)) {
-            Log.d(TAG, "Received new Noise handshake from $peerID with an existing session. Dropping old session to re-handshake.")
-            try {
-                encryptionService.removePeer(peerID)
-                forcedRehandshake = true
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to remove existing Noise session for $peerID: ${e.message}")
-            }
+            Log.d(TAG, "Handshake already completed with $peerID")
+            return true
         }
         
         if (packet.payload.isEmpty()) {
@@ -123,7 +117,7 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
         // Prevent duplicate handshake processing
         val exchangeKey = "$peerID-${packet.payload.sliceArray(0 until minOf(16, packet.payload.size)).contentHashCode()}"
         
-        if (!forcedRehandshake && processedKeyExchanges.contains(exchangeKey)) {
+        if (processedKeyExchanges.contains(exchangeKey)) {
             Log.d(TAG, "Already processed handshake: $exchangeKey")
             return false
         }
@@ -228,79 +222,6 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
                 val payloadHash = packet.payload.sliceArray(0 until minOf(64, packet.payload.size)).contentHashCode()
                 "${packet.timestamp}-$peerID-$payloadHash"
             }
-        }
-    }
-    
-    /**
-     * Verify packet signature using peer's signing public key
-     * Returns true only if signature is present and valid
-     */
-    private fun verifyPacketSignature(packet: BitchatPacket, peerID: String): Boolean {
-        try {
-            // only verify ANNOUNCE, MESSAGE, and FILE_TRANSFER
-            if (MessageType.fromValue(packet.type) !in setOf(
-                    MessageType.ANNOUNCE,
-                    MessageType.MESSAGE,
-                    MessageType.FILE_TRANSFER
-                )) {
-                return true
-            }
-            // 1. Mandatory Signature Check
-            if (packet.signature == null) {
-                Log.w(TAG, "❌ Signature check for $peerID: NO_SIGNATURE (packet type ${packet.type})")
-                return false
-            }
-            
-            // 2. Get Signing Public Key
-            var signingPublicKey: ByteArray? = null
-            
-            if (MessageType.fromValue(packet.type) == MessageType.ANNOUNCE) {
-                // Special Case: ANNOUNCE packets carry their own signing key
-                try {
-                    val announcement = com.bitchat.android.model.IdentityAnnouncement.decode(packet.payload)
-                    signingPublicKey = announcement?.signingPublicKey
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to decode announcement for key extraction: ${e.message}")
-                }
-            } else {
-                // Standard Case: Get key from known peer info
-                val peerInfo = delegate?.getPeerInfo(peerID)
-                signingPublicKey = peerInfo?.signingPublicKey
-            }
-            
-            if (signingPublicKey == null) {
-                // If we don't have a key (and it's not an announce), we can't verify.
-                // For security, we must reject packets from unknown peers unless it's an announce.
-                Log.w(TAG, "❌ Signature check for $peerID: NO_SIGNING_KEY_AVAILABLE (packet type ${packet.type})")
-                return false
-            }
-            
-            // 3. Get Canonical Data
-            val packetDataForSigning = packet.toBinaryDataForSigning()
-            if (packetDataForSigning == null) {
-                Log.w(TAG, "❌ Signature check for $peerID: ENCODING_ERROR (packet type ${packet.type})")
-                return false
-            }
-            
-            // 4. Verify Signature
-            val signature = packet.signature!!
-            val isSignatureValid = encryptionService.verifyEd25519Signature(
-                signature,
-                packetDataForSigning,
-                signingPublicKey
-            )
-            
-            if (isSignatureValid) {
-                // Log.v(TAG, "✅ Signature verified for $peerID (type ${packet.type})")
-                return true
-            } else {
-                Log.w(TAG, "❌ Signature INVALID for $peerID (type ${packet.type})")
-                return false
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Signature verification error for $peerID: ${e.message}")
-            return false
         }
     }
     
@@ -418,5 +339,4 @@ class SecurityManager(private val encryptionService: EncryptionService, private 
 interface SecurityManagerDelegate {
     fun onKeyExchangeCompleted(peerID: String, peerPublicKeyData: ByteArray)
     fun sendHandshakeResponse(peerID: String, response: ByteArray)
-    fun getPeerInfo(peerID: String): PeerInfo? // NEW: For signature verification
 }

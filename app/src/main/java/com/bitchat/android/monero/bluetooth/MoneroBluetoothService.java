@@ -38,7 +38,7 @@ import java.util.UUID;
  */
 public class MoneroBluetoothService {
     
-    private static final String TAG = "MoneroBluetoothService";
+    private static final String TAG = "com.bitchat.MoneroBluetoothService";
     
     // Service UUIDs
     public static final UUID BITCHAT_SERVICE_UUID = UUID.fromString("00001234-0000-1000-8000-00805F9B34FB");

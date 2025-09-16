@@ -12,7 +12,7 @@ class NoiseSessionManager(
 ) {
     
     companion object {
-        private const val TAG = "NoiseSessionManager"
+        private const val TAG = "com.bitchat.NoiseSessionManager"
     }
     
     private val sessions = ConcurrentHashMap<String, NoiseSession>()

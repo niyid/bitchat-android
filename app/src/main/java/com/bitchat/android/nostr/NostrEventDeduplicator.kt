@@ -21,8 +21,8 @@ class NostrEventDeduplicator(
     private val maxCapacity: Int = DEFAULT_CAPACITY
 ) {
     companion object {
-        private const val TAG = "NostrDeduplicator"
-        private const val DEFAULT_CAPACITY = com.bitchat.android.util.AppConstants.Nostr.DEFAULT_DEDUP_CAPACITY
+        private const val TAG = "com.bitchat.NostrDeduplicator"
+        private const val DEFAULT_CAPACITY = 10000
         
         @Volatile
         private var INSTANCE: NostrEventDeduplicator? = null

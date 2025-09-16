@@ -27,7 +27,7 @@ import androidx.core.content.edit
 open class EncryptionService(private val context: Context) {
     
     companion object {
-        private const val TAG = "EncryptionService"
+        private const val TAG = "com.bitchat.EncryptionService"
         private const val ED25519_PRIVATE_KEY_PREF = "ed25519_signing_private_key"
         private const val OLD_PREFS_NAME = "bitchat_crypto"
         private const val SECURE_PREFS_NAME = "bitchat_crypto_secure"

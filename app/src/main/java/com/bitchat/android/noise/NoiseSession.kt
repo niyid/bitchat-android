@@ -18,7 +18,7 @@ class NoiseSession(
 ) {
     
     companion object {
-        private const val TAG = "NoiseSession"
+        private const val TAG = "com.bitchat.NoiseSession"
         private const val NOISE_XX_PATTERN_LENGTH = 3
         
         // Noise Protocol Configuration (exactly matching iOS)

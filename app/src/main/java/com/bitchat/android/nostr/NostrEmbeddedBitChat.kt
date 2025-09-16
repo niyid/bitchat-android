@@ -14,7 +14,7 @@ import java.util.*
  */
 object NostrEmbeddedBitChat {
     
-    private const val TAG = "NostrEmbeddedBitChat"
+    private const val TAG = "com.bitchat.NostrEmbeddedBitChat"
     
     /**
      * Build a `bitchat1:` base64url-encoded BitChat packet carrying a private message for Nostr DMs.

@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap
 class PeerFingerprintManager private constructor() {
     
     companion object {
-        private const val TAG = "PeerFingerprintManager"
+        private const val TAG = "com.bitchat.PeerFingerprintManager"
         
         @Volatile
         private var INSTANCE: PeerFingerprintManager? = null

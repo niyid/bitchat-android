@@ -24,7 +24,7 @@ class BatteryOptimizationManager(
 ) {
 
     companion object {
-        private const val TAG = "BatteryOptimizationManager"
+        private const val TAG = "com.bitchat.BatteryOptimizationManager"
     }
 
     private var batteryOptimizationLauncher: ActivityResultLauncher<Intent>? = null

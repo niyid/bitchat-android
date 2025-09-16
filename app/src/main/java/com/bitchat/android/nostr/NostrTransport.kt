@@ -18,8 +18,8 @@ class NostrTransport(
 ) {
     
     companion object {
-        private const val TAG = "NostrTransport"
-        private const val READ_ACK_INTERVAL = com.bitchat.android.util.AppConstants.Nostr.READ_ACK_INTERVAL_MS // ~3 per second (0.35s interval like iOS)
+        private const val TAG = "com.bitchat.NostrTransport"
+        private const val READ_ACK_INTERVAL = 350L // ~3 per second (0.35s interval like iOS)
         
         @Volatile
         private var INSTANCE: NostrTransport? = null
@@ -56,7 +56,8 @@ class NostrTransport(
                 // Resolve favorite by full noise key or by short peerID fallback
                 var recipientNostrPubkey: String? = null
                 
-                // Resolve by peerID first (new peerID→npub index), then fall back to noise key mapping
+                // Try to resolve from favorites persistence service
+                // This would need integration with the existing favorites system
                 recipientNostrPubkey = resolveNostrPublicKey(to)
                 
                 if (recipientNostrPubkey == null) {
@@ -85,22 +86,12 @@ class NostrTransport(
                     return@launch
                 }
                 
-                // Strict: lookup the recipient's current BitChat peer ID using favorites mapping
-                val recipientPeerIDForEmbed = try {
-                    com.bitchat.android.favorites.FavoritesPersistenceService.shared
-                        .findPeerIDForNostrPubkey(recipientNostrPubkey)
-                } catch (_: Exception) { null }
-                if (recipientPeerIDForEmbed.isNullOrBlank()) {
-                    Log.e(TAG, "NostrTransport: no peerID stored for recipient npub; cannot embed PM. npub=${recipientNostrPubkey.take(16)}...")
-                    return@launch
-                }
                 val embedded = NostrEmbeddedBitChat.encodePMForNostr(
                     content = content,
                     messageID = messageID,
-                    recipientPeerID = recipientPeerIDForEmbed,
+                    recipientPeerID = to,
                     senderPeerID = senderPeerID
                 )
-                
                 
                 if (embedded == null) {
                     Log.e(TAG, "NostrTransport: failed to embed PM packet")
@@ -240,7 +231,11 @@ class NostrTransport(
                     return@launch
                 }
                 
-                val content = if (isFavorite) "[FAVORITED]:${senderIdentity.npub}" else "[UNFAVORITED]:${senderIdentity.npub}"
+                val content = if (isFavorite) {
+                    "[FAVORITED]:${senderIdentity.npub}"
+                } else {
+                    "[UNFAVORITED]:${senderIdentity.npub}"
+                }
                 
                 Log.d(TAG, "NostrTransport: preparing FAVORITE($isFavorite) to ${recipientNostrPubkey.take(16)}...")
                 
@@ -417,58 +412,39 @@ class NostrTransport(
     fun sendPrivateMessageGeohash(
         content: String,
         toRecipientHex: String,
-        messageID: String,
-        sourceGeohash: String? = null
+        fromIdentity: NostrIdentity,
+        messageID: String
     ) {
-        // Use provided geohash or derive from current location
-        val geohash = sourceGeohash ?: run {
-            val selected = try {
-                com.bitchat.android.geohash.LocationChannelManager.getInstance(context).selectedChannel.value
-            } catch (_: Exception) { null }
-            if (selected !is com.bitchat.android.geohash.ChannelID.Location) {
-                Log.w(TAG, "NostrTransport: cannot send geohash PM - not in a location channel and no geohash provided")
-                return
-            }
-            selected.channel.geohash
-        }
-        
-        val fromIdentity = try {
-            NostrIdentityBridge.deriveIdentity(geohash, context)
-        } catch (e: Exception) {
-            Log.e(TAG, "NostrTransport: cannot derive geohash identity for $geohash: ${e.message}")
-            return
-        }
-        
         transportScope.launch {
             try {
                 if (toRecipientHex.isEmpty()) return@launch
-
-                Log.d(
-                    TAG,
-                    "GeoDM: send PM -> recip=${toRecipientHex.take(8)}... mid=${messageID.take(8)}... from=${fromIdentity.publicKeyHex.take(8)}... geohash=$geohash"
-                )
-
+                
+                Log.d(TAG, "GeoDM: send PM -> recip=${toRecipientHex.take(8)}... mid=${messageID.take(8)}... from=${fromIdentity.publicKeyHex.take(8)}...")
+                
                 // Build embedded BitChat packet without recipient peer ID
                 val embedded = NostrEmbeddedBitChat.encodePMForNostrNoRecipient(
                     content = content,
                     messageID = messageID,
                     senderPeerID = senderPeerID
-                ) ?: run {
+                )
+                
+                if (embedded == null) {
                     Log.e(TAG, "NostrTransport: failed to embed geohash PM packet")
                     return@launch
                 }
-
+                
                 val giftWraps = NostrProtocol.createPrivateMessage(
                     content = embedded,
                     recipientPubkey = toRecipientHex,
                     senderIdentity = fromIdentity
                 )
-
+                
                 giftWraps.forEach { event ->
                     Log.d(TAG, "NostrTransport: sending geohash PM giftWrap id=${event.id.take(16)}...")
                     NostrRelayManager.registerPendingGiftWrap(event.id)
                     NostrRelayManager.getInstance(context).sendEvent(event)
                 }
+                
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to send geohash private message: ${e.message}")
             }
@@ -482,15 +458,14 @@ class NostrTransport(
      */
     private fun resolveNostrPublicKey(peerID: String): String? {
         try {
-            // 1) Fast path: direct peerID→npub mapping (mutual favorites after mesh mapping)
-            com.bitchat.android.favorites.FavoritesPersistenceService.shared.findNostrPubkeyForPeerID(peerID)?.let { return it }
-
-            // 2) Legacy path: resolve by noise public key association
+            // Try to resolve from favorites persistence service
             val noiseKey = hexStringToByteArray(peerID)
             val favoriteStatus = com.bitchat.android.favorites.FavoritesPersistenceService.shared.getFavoriteStatus(noiseKey)
-            if (favoriteStatus?.peerNostrPublicKey != null) return favoriteStatus.peerNostrPublicKey
-
-            // 3) Prefix match on noiseHex from 16-hex peerID
+            if (favoriteStatus?.peerNostrPublicKey != null) {
+                return favoriteStatus.peerNostrPublicKey
+            }
+            
+            // Fallback: try with 16-hex peerID lookup
             if (peerID.length == 16) {
                 val fallbackStatus = com.bitchat.android.favorites.FavoritesPersistenceService.shared.getFavoriteStatus(peerID)
                 return fallbackStatus?.peerNostrPublicKey

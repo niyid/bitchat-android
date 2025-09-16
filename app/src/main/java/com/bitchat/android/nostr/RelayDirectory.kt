@@ -25,7 +25,7 @@ import okhttp3.Request
  */
 object RelayDirectory {
 
-    private const val TAG = "RelayDirectory"
+    private const val TAG = "com.bitchat.RelayDirectory"
     private const val ASSET_FILE_URL = "https://raw.githubusercontent.com/permissionlesstech/georelays/refs/heads/main/nostr_relays.csv"
     private const val ASSET_FILE = "nostr_relays.csv"
     private const val DOWNLOADED_FILE = "nostr_relays_latest.csv"

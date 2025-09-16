@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
 class NoiseEncryptionService(private val context: Context) {
     
     companion object {
-        private const val TAG = "NoiseEncryptionService"
+        private const val TAG = "com.bitchat.NoiseEncryptionService"
         
         // Session limits for performance and security
         private const val REKEY_TIME_LIMIT = com.bitchat.android.util.AppConstants.Noise.REKEY_TIME_LIMIT_MS // 1 hour (same as iOS)

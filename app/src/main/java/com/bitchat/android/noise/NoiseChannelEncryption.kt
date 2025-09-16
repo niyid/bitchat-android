@@ -18,7 +18,7 @@ import javax.crypto.spec.SecretKeySpec
 class NoiseChannelEncryption {
     
     companion object {
-        private const val TAG = "NoiseChannelEncryption"
+        private const val TAG = "com.bitchat.NoiseChannelEncryption"
         
         // PBKDF2 parameters (same as iOS)
         private const val PBKDF2_ITERATIONS = 100000

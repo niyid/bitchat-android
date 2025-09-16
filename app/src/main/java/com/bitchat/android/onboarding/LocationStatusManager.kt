@@ -25,7 +25,7 @@ class LocationStatusManager(
 ) {
 
     companion object {
-        private const val TAG = "LocationStatusManager"
+        private const val TAG = "com.bitchat.LocationStatusManager"
     }
 
     private var locationSettingsLauncher: ActivityResultLauncher<Intent>? = null

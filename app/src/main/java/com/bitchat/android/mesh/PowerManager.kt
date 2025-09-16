@@ -24,7 +24,7 @@ import kotlin.math.max
 class PowerManager(private val context: Context) : LifecycleEventObserver {
     
     companion object {
-        private const val TAG = "PowerManager"
+        private const val TAG = "com.bitchat.PowerManager"
         
         // Battery thresholds
         private const val CRITICAL_BATTERY = com.bitchat.android.util.AppConstants.Power.CRITICAL_BATTERY_PERCENT

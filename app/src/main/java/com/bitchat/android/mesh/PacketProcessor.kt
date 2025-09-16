@@ -19,7 +19,7 @@ class PacketProcessor(private val myPeerID: String) {
     private val debugManager by lazy { try { com.bitchat.android.ui.debug.DebugSettingsManager.getInstance() } catch (e: Exception) { null } }
     
     companion object {
-        private const val TAG = "PacketProcessor"
+        private const val TAG = "com.bitchat.PacketProcessor"
     }
     
     // Delegate for callbacks

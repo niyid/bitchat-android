@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
  */
 object NostrProtocol {
     
-    private const val TAG = "NostrProtocol"
+    private const val TAG = "com.bitchat.NostrProtocol"
     private val gson = Gson()
     
     /**

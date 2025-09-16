@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
 class FragmentManager {
     
     companion object {
-        private const val TAG = "FragmentManager"
+        private const val TAG = "com.bitchat.FragmentManager"
         // iOS values: 512 MTU threshold, 469 max fragment size (512 MTU - headers)
         private const val FRAGMENT_SIZE_THRESHOLD = com.bitchat.android.util.AppConstants.Fragmentation.FRAGMENT_SIZE_THRESHOLD // Matches iOS: if data.count > 512
         private const val MAX_FRAGMENT_SIZE = com.bitchat.android.util.AppConstants.Fragmentation.MAX_FRAGMENT_SIZE        // Matches iOS: maxFragmentSize = 469 

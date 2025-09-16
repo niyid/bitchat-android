@@ -24,7 +24,7 @@ class BluetoothStatusManager(
 ) {
 
     companion object {
-        private const val TAG = "BluetoothStatusManager"
+        private const val TAG = "com.bitchat.BluetoothStatusManager"
     }
 
     private var bluetoothEnableLauncher: ActivityResultLauncher<Intent>? = null

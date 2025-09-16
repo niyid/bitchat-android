@@ -9,14 +9,11 @@ import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
 import com.bitchat.android.protocol.BitchatPacket
-import com.bitchat.android.util.AppConstants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.*
 import kotlinx.coroutines.Job
-import com.bitchat.android.ui.debug.DebugSettingsManager
-import com.bitchat.android.ui.debug.DebugScanResult
 
 /**
  * Manages GATT client operations, scanning, and client-side connections
@@ -31,7 +28,14 @@ class BluetoothGattClientManager(
 ) {
     
     companion object {
-        private const val TAG = "BluetoothGattClientManager"
+        private const val TAG = "com.bitchat.BluetoothGattClientManager"
+        // Use exact same UUIDs as iOS version
+        private val SERVICE_UUID = UUID.fromString("F47B5E2D-4A9E-4C5A-9B3F-8E1D2C3A4B5C")
+        private val CHARACTERISTIC_UUID = UUID.fromString("A1B2C3D4-E5F6-4A5B-8C9D-0E1F2A3B4C5D")
+        private val DESCRIPTOR_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+        
+        // RSSI monitoring constants
+        private const val RSSI_UPDATE_INTERVAL = 5000L // 5 seconds
     }
     
     // Core Bluetooth components
@@ -40,21 +44,6 @@ class BluetoothGattClientManager(
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager.adapter
     private val bleScanner: BluetoothLeScanner? = bluetoothAdapter?.bluetoothLeScanner
     
-    /**
-     * Public: Connect to a device by MAC address (for debug UI)
-     */
-    fun connectToAddress(deviceAddress: String): Boolean {
-        val device = bluetoothAdapter?.getRemoteDevice(deviceAddress)
-        return if (device != null) {
-            val rssi = connectionTracker.getBestRSSI(deviceAddress) ?: -50
-            connectToDevice(device, rssi)
-            true
-        } else {
-            Log.w(TAG, "connectToAddress: No device for $deviceAddress")
-            false
-        }
-    }
-
     // Scan management
     private var scanCallback: ScanCallback? = null
     
@@ -74,18 +63,6 @@ class BluetoothGattClientManager(
      * Start client manager
      */
     fun start(): Boolean {
-        // Respect debug setting
-        try {
-            if (!com.bitchat.android.ui.debug.DebugSettingsManager.getInstance().gattClientEnabled.value) {
-                Log.i(TAG, "Client start skipped: GATT Client disabled in debug settings")
-                return false
-            }
-        } catch (_: Exception) { }
-
-        if (isActive) {
-            Log.d(TAG, "GATT client already active; start is a no-op")
-            return true
-        }
         if (!permissionManager.hasBluetoothPermissions()) {
             Log.e(TAG, "Missing Bluetooth permissions")
             return false
@@ -121,25 +98,9 @@ class BluetoothGattClientManager(
      * Stop client manager
      */
     fun stop() {
-        if (!isActive) {
-            // Idempotent stop
-            stopScanning()
-            stopRSSIMonitoring()
-            Log.i(TAG, "GATT client manager stopped (already inactive)")
-            return
-        }
-
         isActive = false
         
         connectionScope.launch {
-            // Disconnect all client connections decisively
-            try {
-                val conns = connectionTracker.getConnectedDevices().values.filter { it.isClient && it.gatt != null }
-                conns.forEach { dc ->
-                    try { dc.gatt?.disconnect() } catch (_: Exception) { }
-                }
-            } catch (_: Exception) { }
-            
             stopScanning()
             stopRSSIMonitoring()
             Log.i(TAG, "GATT client manager stopped")
@@ -150,8 +111,7 @@ class BluetoothGattClientManager(
      * Handle scan state changes from power manager
      */
     fun onScanStateChanged(shouldScan: Boolean) {
-        val enabled = try { com.bitchat.android.ui.debug.DebugSettingsManager.getInstance().gattClientEnabled.value } catch (_: Exception) { true }
-        if (shouldScan && enabled) {
+        if (shouldScan) {
             startScanning()
         } else {
             stopScanning()
@@ -176,10 +136,10 @@ class BluetoothGattClientManager(
                             Log.w(TAG, "Failed to request RSSI from ${deviceConn.device.address}: ${e.message}")
                         }
                     }
-                    delay(AppConstants.Mesh.RSSI_UPDATE_INTERVAL_MS)
+                    delay(RSSI_UPDATE_INTERVAL)
                 } catch (e: Exception) {
                     Log.w(TAG, "Error in RSSI monitoring: ${e.message}")
-                    delay(AppConstants.Mesh.RSSI_UPDATE_INTERVAL_MS)
+                    delay(RSSI_UPDATE_INTERVAL)
                 }
             }
         }
@@ -198,9 +158,7 @@ class BluetoothGattClientManager(
      */
     @Suppress("DEPRECATION")
     private fun startScanning() {
-        // Respect debug setting
-        val enabled = try { com.bitchat.android.ui.debug.DebugSettingsManager.getInstance().gattClientEnabled.value } catch (_: Exception) { true }
-        if (!permissionManager.hasBluetoothPermissions() || bleScanner == null || !isActive || !enabled) return
+        if (!permissionManager.hasBluetoothPermissions() || bleScanner == null || !isActive) return
         
         // Rate limit scan starts to prevent "scanning too frequently" errors
         val currentTime = System.currentTimeMillis()
@@ -225,12 +183,12 @@ class BluetoothGattClientManager(
         }
         
         val scanFilter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(AppConstants.Mesh.Gatt.SERVICE_UUID))
+            .setServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
         
         val scanFilters = listOf(scanFilter) 
         
-        Log.d(TAG, "Starting BLE scan with target service UUID: ${AppConstants.Mesh.Gatt.SERVICE_UUID}")
+        Log.d(TAG, "Starting BLE scan with target service UUID: $SERVICE_UUID")
         
         scanCallback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -315,58 +273,19 @@ class BluetoothGattClientManager(
         val scanRecord = result.scanRecord
         
         // CRITICAL: Only process devices that have our service UUID
-        val hasOurService = scanRecord?.serviceUuids?.any { it.uuid == AppConstants.Mesh.Gatt.SERVICE_UUID } == true
+        val hasOurService = scanRecord?.serviceUuids?.any { it.uuid == SERVICE_UUID } == true
         if (!hasOurService) {
             return
-        }
-
-        // Try to extract peerID from Service Data (if available) for stable identity
-        val serviceData = scanRecord?.getServiceData(ParcelUuid(AppConstants.Mesh.Gatt.SERVICE_UUID))
-        val peerID = if (serviceData != null && serviceData.size >= 8) {
-            serviceData.joinToString("") { "%02x".format(it) }
-        } else {
-            null
-        }
-
-        if (peerID != null) {
-            // Log.v(TAG, "Found peerID $peerID in scan record for $deviceAddress")
-            if (connectionTracker.isPeerConnected(peerID)) {
-                 Log.d(TAG, "Deduplication: Peer $peerID is already connected (ignoring $deviceAddress)")
-                 return
-            }
         }
 
         // Log.d(TAG, "Received scan result from $deviceAddress - already connected: ${connectionTracker.isDeviceConnected(deviceAddress)}")
         
         // Store RSSI from scan results for later use (especially for server connections)
         connectionTracker.updateScanRSSI(deviceAddress, rssi)
-
-        // Publish scan result to debug UI buffer
-        try {
-            DebugSettingsManager.getInstance().addScanResult(
-                DebugScanResult(
-                    deviceName = device.name,
-                    deviceAddress = deviceAddress,
-                    rssi = rssi,
-                    peerID = peerID // Use the discovered peerID if available
-                )
-            )
-        } catch (_: Exception) { }
         
         // Power-aware RSSI filtering
         if (rssi < powerManager.getRSSIThreshold()) {
             Log.d(TAG, "Skipping device $deviceAddress due to weak signal: $rssi < ${powerManager.getRSSIThreshold()}")
-            // Even if we skip connecting, still publish scan result to debug UI
-            try {
-                DebugSettingsManager.getInstance().addScanResult(
-                    DebugScanResult(
-                        deviceName = device.name,
-                        deviceAddress = deviceAddress,
-                        rssi = rssi,
-                        peerID = peerID
-                    )
-                )
-            } catch (_: Exception) { }
             return
         }
         
@@ -381,19 +300,14 @@ class BluetoothGattClientManager(
             return
         }
         
-        // Check if connection limit is reached
-        val dbg = try { com.bitchat.android.ui.debug.DebugSettingsManager.getInstance() } catch (_: Exception) { null }
-        val maxOverall = dbg?.maxConnectionsOverall?.value ?: powerManager.getMaxConnections()
-        val maxClient = dbg?.maxClientConnections?.value ?: maxOverall
-
-        if (!connectionTracker.canConnectAsClient(maxOverall, maxClient)) {
-            Log.d(TAG, "Client connection limit reached (overall: $maxOverall, client: $maxClient)")
+        if (connectionTracker.isConnectionLimitReached()) {
+            Log.d(TAG, "Connection limit reached (${powerManager.getMaxConnections()})")
             return
         }
         
         // Add pending connection and start connection
         if (connectionTracker.addPendingConnection(deviceAddress)) {
-            connectToDevice(device, rssi, peerID)
+            connectToDevice(device, rssi)
         }
     }
     
@@ -401,11 +315,11 @@ class BluetoothGattClientManager(
      * Connect to a device as GATT client
      */
     @Suppress("DEPRECATION")
-    private fun connectToDevice(device: BluetoothDevice, rssi: Int, peerID: String? = null) {
+    private fun connectToDevice(device: BluetoothDevice, rssi: Int) {
         if (!permissionManager.hasBluetoothPermissions()) return
 
         val deviceAddress = device.address
-        Log.i(TAG, "Connecting to bitchat device: $deviceAddress (peerID: $peerID)")
+        Log.i(TAG, "Connecting to bitchat device: $deviceAddress")
         
         val gattCallback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -428,9 +342,6 @@ class BluetoothGattClientManager(
                         Log.d(TAG, "Client: Cleanly disconnected from $deviceAddress")
                         connectionTracker.cleanupDeviceConnection(deviceAddress)
                     }
-
-                    // Notify higher layers about device disconnection to update direct flags
-                    delegate?.onDeviceDisconnected(gatt.device)
 
                     connectionScope.launch {
                         delay(500) // CLEANUP_DELAY
@@ -455,8 +366,7 @@ class BluetoothGattClientManager(
                         device = gatt.device,
                         gatt = gatt,
                         rssi = rssi,
-                        isClient = true,
-                        peerID = peerID // Store the peerID discovered during scan
+                        isClient = true
                     )
                     connectionTracker.addDeviceConnection(deviceAddress, deviceConn)
                     
@@ -471,9 +381,9 @@ class BluetoothGattClientManager(
 
             override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {                
                 if (status == BluetoothGatt.GATT_SUCCESS) {
-                    val service = gatt.getService(AppConstants.Mesh.Gatt.SERVICE_UUID)
+                    val service = gatt.getService(SERVICE_UUID)
                     if (service != null) {
-                        val characteristic = service.getCharacteristic(AppConstants.Mesh.Gatt.CHARACTERISTIC_UUID)
+                        val characteristic = service.getCharacteristic(CHARACTERISTIC_UUID)
                         if (characteristic != null) {
                             connectionTracker.getDeviceConnection(deviceAddress)?.let { deviceConn ->
                                 val updatedConn = deviceConn.copy(characteristic = characteristic)
@@ -482,7 +392,7 @@ class BluetoothGattClientManager(
                             }
                             
                             gatt.setCharacteristicNotification(characteristic, true)
-                            val descriptor = characteristic.getDescriptor(AppConstants.Mesh.Gatt.DESCRIPTOR_UUID)
+                            val descriptor = characteristic.getDescriptor(DESCRIPTOR_UUID)
                             if (descriptor != null) {
                                 descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                                 gatt.writeDescriptor(descriptor)
@@ -561,9 +471,7 @@ class BluetoothGattClientManager(
      * Restart scanning for power mode changes
      */
     fun restartScanning() {
-        // Respect debug setting
-        val enabled = try { com.bitchat.android.ui.debug.DebugSettingsManager.getInstance().gattClientEnabled.value } catch (_: Exception) { true }
-        if (!isActive || !enabled) return
+        if (!isActive) return
         
         connectionScope.launch {
             stopScanning()

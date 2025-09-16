@@ -35,7 +35,7 @@ import javax.crypto.ShortBufferException;
  */
 public class HandshakeState implements Destroyable {
 
-	private static final String TAG = "AndroidHandshake";
+	private static final String TAG = "com.bitchat.AndroidHandshake";
 
 	private SymmetricState symmetric;
 	private boolean isInitiator;
