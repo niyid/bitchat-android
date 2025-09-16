@@ -16,7 +16,7 @@ import kotlin.random.Random
 class PacketRelayManager(private val myPeerID: String) {
     
     companion object {
-        private const val TAG = "PacketRelayManager"
+        private const val TAG = "com.bitchat.PacketRelayManager"
     }
     
     // Delegate for callbacks

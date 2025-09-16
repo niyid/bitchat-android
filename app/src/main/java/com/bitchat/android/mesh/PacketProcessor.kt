@@ -18,7 +18,7 @@ import kotlinx.coroutines.channels.actor
 class PacketProcessor(private val myPeerID: String) {
     
     companion object {
-        private const val TAG = "PacketProcessor"
+        private const val TAG = "com.bitchat.PacketProcessor"
     }
     
     // Delegate for callbacks

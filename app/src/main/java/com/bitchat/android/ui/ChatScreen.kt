@@ -39,6 +39,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.monero.wallet.WalletSuite
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
+import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import java.math.BigInteger
@@ -47,7 +48,7 @@ import java.util.*
 import kotlin.collections.HashMap
 import android.util.Log
 
-private const val TAG = "ChatScreen"
+private const val TAG = "com.bitchat.ChatScreen"
 
 /**
  * Main ChatScreen - REFACTORED to use component-based architecture with Monero integration
@@ -84,6 +85,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val walletStatusMessage = viewModel.walletStatusMessage
     val isWalletReady = viewModel.isWalletReady
     val peerMoneroAddresses = viewModel.peerMoneroAddresses
+    val moneroChatTransferManager = viewModel.moneroChatTransferManager
+
     var myWalletAddress by remember { mutableStateOf<String?>(null) }
 
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
@@ -152,17 +155,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
         viewModel.initializeMoneroMessageHandler(object : MoneroMessageHandler.MoneroMessageListener {
             override fun onPaymentReceived(payment: MoneroMessageHandler.MoneroPaymentMessage) {
-                val paymentMessage = "💰 Received ${payment.amount} XMR from ${payment.fromUser}"
+                val paymentMessage = "ðŸ’° Received ${payment.amount} XMR from ${payment.fromUser}"
                 viewModel.addSystemMessage(paymentMessage)
             }
 
             override fun onAddressShared(address: String, fromUser: String) {
                 viewModel.addPeerMoneroAddress(fromUser, address)
-                viewModel.addSystemMessage("📘 $fromUser shared Monero address")
+                viewModel.addSystemMessage("ðŸ“˜ $fromUser shared Monero address")
             }
 
             override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
-                val requestMessage = "💳 ${request.fromUser} requested ${request.amount} XMR" +
+                val requestMessage = "ðŸ’³ ${request.fromUser} requested ${request.amount} XMR" +
                     if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
                 viewModel.addSystemMessage(requestMessage)
             }
@@ -263,6 +266,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     showUserSheet = true
                 },
                 walletSuite = walletSuite,   
+                moneroChatTransferManager = moneroChatTransferManager,
                 viewModel = viewModel                        
             )
             
@@ -275,24 +279,29 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     viewModel.updateMentionSuggestions(newText.text)
                 },
                 onSend = {
+                    Log.d(TAG, "Sending Monero now...")
                     if (messageText.text.trim().isNotEmpty()) {
                         if (isMoneroModeActive) {
                             // Handle Monero send
+                            Log.d(TAG, "Sending Monero now...")
                             handleMoneroSend(
                                 amount = messageText.text.trim(),
                                 walletSuite = walletSuite,
+                                moneroChatTransferManager = moneroChatTransferManager,
                                 selectedPrivatePeer = selectedPrivatePeer,
                                 canReceiveMonero = canReceiveMonero,
                                 peerMoneroAddresses = peerMoneroAddresses,
                                 viewModel = viewModel,
                                 onSuccess = {
+                                    Log.d(TAG, "Monero of ${messageText.text.trim()} has been sent!")
                                     messageText = TextFieldValue("")
                                     viewModel.isMoneroModeActive = false
                                     forceScrollToBottom = !forceScrollToBottom
                                 },
                                 onError = { error ->
+                                    Log.e(TAG, "An error of ${error} has occurred")
                                     // Handle error (show toast or error message)
-                                    viewModel.addSystemMessage("❌ Payment error: $error")
+                                    viewModel.addSystemMessage("âŒ Payment error: $error")
                                 }
                             )
                         } else {
@@ -490,6 +499,7 @@ private fun shareAddressWithConnectedPeers(
 private fun handleMoneroSend(
     amount: String,
     walletSuite: WalletSuite?,
+    moneroChatTransferManager: MoneroChatTransferManager?,
     selectedPrivatePeer: String?,
     canReceiveMonero: Boolean,
     peerMoneroAddresses: Map<String, String>,
@@ -498,49 +508,52 @@ private fun handleMoneroSend(
     onError: (String) -> Unit
 ) {
     if (walletSuite == null || selectedPrivatePeer == null || !canReceiveMonero) {
-        onError("Cannot send Monero: wallet not ready or peer cannot receive Monero")
+        val msg = "Cannot send Monero: wallet not ready or peer cannot receive Monero"
+        onError(msg)
+        viewModel.addSystemMessage("âŒ $msg")
         return
     }
 
     val peerMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
     if (peerMoneroAddress == null) {
-        // If address not found, request it explicitly (fallback mechanism)
         val requestMessage = "[REQUEST_MONERO_ADDRESS]"
         viewModel.sendDirectMessage(selectedPrivatePeer, requestMessage)
-        onError("Peer address not available. Address request sent.")
+        val msg = "Peer address not available. Address request sent."
+        onError(msg)
+        viewModel.addSystemMessage("âš ï¸ $msg")
         return
     }
 
     try {
-        // Directly pass amount (as String) to createTxBlob
-        walletSuite.createTxBlob(
-            peerMoneroAddress,
-            amount,
-            object : WalletSuite.TxBlobCallback {
-                override fun onSuccess(txId: String, base64Blob: String) {
-                    if (base64Blob.isEmpty()) {
-                        onError("Failed to create transaction blob")
-                        return
-                    }
+        Log.i(TAG, "Attempting to send Monero payment: amount=$amount, peer=$selectedPrivatePeer")
 
-                    // base64Blob is already Base64 encoded from wallet side
-                    val paymentMessage = "[XMR_TX_BLOB]$base64Blob"
-                    viewModel.sendDirectMessage(selectedPrivatePeer, paymentMessage)
-                    Log.d(TAG, "Sending XMR ($amount) to peer: $txId")
-                    viewModel.addSystemMessage(
-                        "💰 Created tx for $amount XMR and sent to peer (pending broadcast) – txId: $txId"
-                    )
-
-                    onSuccess()
-                }
-
-                override fun onError(error: String) {
-                    onError("Payment failed: $error")
-                }
+        moneroChatTransferManager?.handleMoneroSend(
+            amount = amount,
+            selectedPrivatePeer = selectedPrivatePeer,
+            canReceiveMonero = canReceiveMonero,
+            peerMoneroAddresses = peerMoneroAddresses,
+            onSuccess = {
+                Log.i(TAG, "Monero payment send request completed successfully.")
+                viewModel.addSystemMessage("âœ… Monero payment initiated successfully.")
+                onSuccess()
+            },
+            onError = { error ->
+                Log.e(TAG, "Monero send failed: $error")
+                viewModel.addSystemMessage("âŒ Failed to send Monero payment: $error")
+                onError(error)
             }
-        )
+        ) ?: run {
+            val msg = "Monero transfer system is not available."
+            Log.w(TAG, msg)
+            viewModel.addSystemMessage("âŒ $msg")
+            onError(msg)
+        }
+
     } catch (e: Exception) {
-        onError("Payment failed: ${e.message}")
+        val msg = "Payment failed due to error: ${e.message}"
+        Log.e(TAG, msg, e)
+        viewModel.addSystemMessage("âŒ $msg")
+        onError(msg)
     }
 }
 
@@ -968,7 +981,7 @@ private fun AboutSheet(
                 
                 features.forEach { feature ->
                     Text(
-                        text = "• $feature",
+                        text = "â€¢ $feature",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
@@ -1014,7 +1027,7 @@ private fun LocationChannelItem(
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = "$distance • $memberCount members",
+                    text = "$distance â€¢ $memberCount members",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )

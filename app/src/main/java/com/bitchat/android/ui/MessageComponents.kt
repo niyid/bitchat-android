@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -20,19 +21,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.model.DeliveryStatus
 import com.bitchat.android.mesh.BluetoothMeshService
 import com.bitchat.android.monero.wallet.WalletSuite
+import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
+import android.util.Log
 import java.text.SimpleDateFormat
 import java.util.*
-import android.util.Base64
 
 /**
  * Message display components for ChatScreen
  * Extracted from ChatScreen.kt for better organization
  */
+private const val TAG = "com.bitchat.MessageComponents"
 
 @Composable
 fun MessagesList(
@@ -40,6 +42,7 @@ fun MessagesList(
     currentUserNickname: String,
     meshService: BluetoothMeshService,
     walletSuite: WalletSuite?,
+    moneroChatTransferManager: MoneroChatTransferManager?,
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier,
     forceScrollToBottom: Boolean = false,
@@ -48,7 +51,6 @@ fun MessagesList(
     onMessageLongPress: ((BitchatMessage) -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
-
     var hasScrolledToInitialPosition by remember { mutableStateOf(false) }
 
     // Smart scroll
@@ -101,6 +103,7 @@ fun MessagesList(
                 onNicknameClick = onNicknameClick,
                 onMessageLongPress = onMessageLongPress,
                 walletSuite = walletSuite,
+                moneroChatTransferManager = moneroChatTransferManager,
                 viewModel = viewModel
             )
         }
@@ -114,57 +117,38 @@ fun MessageItem(
     onNicknameClick: ((String) -> Unit)?,
     onMessageLongPress: ((BitchatMessage) -> Unit)?,
     walletSuite: WalletSuite?,
+    moneroChatTransferManager: MoneroChatTransferManager?,
     viewModel: ChatViewModel
 ) {
     val isCurrentUser = message.sender == currentUserNickname
     val colorScheme = MaterialTheme.colorScheme
 
-    // 🔑 Special Monero messages
     when {
-        message.content.startsWith("[XMR_TX_BLOB]") -> {
+        // ---- FILE TRANSFER SIGNAL ----
+        message.content.startsWith("[XMR_FILE_TRANSFER]") -> {
             LaunchedEffect(message.id) {
-                try {
-                    val base64Blob = message.content.removePrefix("[XMR_TX_BLOB]")
-                    val blob = Base64.decode(base64Blob, Base64.NO_WRAP)
-                    val txId = walletSuite?.submitTxBlob(blob)
-
-                    if (txId != null) {
-                        viewModel.addSystemMessage("✅ Submitted Monero tx: $txId")
-
-                        // Send confirmation back to sender
-                        val confirmMsg =
-                            "[XMR_TX_CONFIRMED]$txId|${blob.size}|success"
-                        viewModel.sendMessage(confirmMsg)
-                    } else {
-                        viewModel.addSystemMessage("⚠️ Failed to submit Monero tx")
-
-                        // Send failure confirmation back to sender
-                        val confirmMsg =
-                            "[XMR_TX_CONFIRMED]unknown|${blob.size}|failed"
-                        viewModel.sendMessage(confirmMsg)
-                    }
-                } catch (e: Exception) {
-                    viewModel.addSystemMessage("❌ Invalid Monero tx blob: ${e.message}")
-                }
+                Log.d(TAG, "Monero file transfer signal from ${message.sender}")
+                // Just notify the user — actual file/tx handling is done via MoneroChatTransferManager callbacks
+                viewModel.addSystemMessage("📥 Incoming Monero transaction file from ${message.sender}")
             }
             return
         }
 
+        // ---- CONFIRMATION ----
         message.content.startsWith("[XMR_TX_CONFIRMED]") -> {
             LaunchedEffect(message.id) {
-                try {
-                    val parts = message.content.removePrefix("[XMR_TX_CONFIRMED]").split("|")
-                    val txId = parts.getOrNull(0) ?: "unknown"
-                    val amount = parts.getOrNull(1) ?: "?"
-                    val status = parts.getOrNull(2) ?: "unknown"
-
-                    val symbol = if (status == "success") "✅" else "❌"
-                    viewModel.addSystemMessage(
-                        "$symbol Monero tx $txId ($amount atomic units) status: $status"
-                    )
-                } catch (e: Exception) {
-                    viewModel.addSystemMessage("⚠️ Invalid Monero confirmation: ${e.message}")
-                }
+                Log.d(TAG, "Received tx confirmation: ${message.content}")
+                handleTxConfirmed(message, viewModel)
+            }
+            return
+        }
+        // ---- ADDRESS SHARING ----
+        message.content.startsWith("[MONERO_ADDRESS]") -> {
+            LaunchedEffect(message.id) {
+                val address = message.content.removePrefix("[MONERO_ADDRESS]")
+                Log.d(TAG, "Received Monero address from ${message.sender}: $address")
+                viewModel.updatePeerMoneroAddress(message.sender, address)
+                viewModel.addSystemMessage("🏦 ${message.sender} shared their Monero address")
             }
             return
         }
@@ -314,5 +298,26 @@ fun DeliveryStatusIcon(status: DeliveryStatus) {
 private fun formatTimestamp(timestamp: Long): String {
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
     return sdf.format(Date(timestamp))
+}
+
+private suspend fun handleTxConfirmed(
+    message: BitchatMessage,
+    viewModel: ChatViewModel
+) {
+    try {
+        val parts = message.content.removePrefix("[XMR_TX_CONFIRMED]").split("|")
+        val txId = parts.getOrNull(0) ?: "unknown"
+        val amount = parts.getOrNull(1) ?: "?"
+        val status = parts.getOrNull(2) ?: "unknown"
+
+        val symbol = if (status == "success") "✅" else "❌"
+        Log.i(TAG, "Tx confirmed: id=$txId amount=$amount status=$status")
+        viewModel.addSystemMessage(
+            "$symbol Monero tx $txId ($amount atomic units) status: $status"
+        )
+    } catch (e: Exception) {
+        Log.e(TAG, "Invalid Monero confirmation: ${e.message}", e)
+        viewModel.addSystemMessage("⚠️ Invalid Monero confirmation: ${e.message}")
+    }
 }
 

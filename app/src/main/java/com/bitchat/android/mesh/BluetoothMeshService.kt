@@ -32,7 +32,7 @@ import kotlin.random.Random
 class BluetoothMeshService(private val context: Context) {
     
     companion object {
-        private const val TAG = "BluetoothMeshService"
+        private const val TAG = "com.bitchat.BluetoothMeshService"
         private const val MAX_TTL: UByte = 7u
     }
     

@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
 class NotificationManager(private val context: Context) {
 
     companion object {
-        private const val TAG = "NotificationManager"
+        private const val TAG = "com.bitchat.NotificationManager"
         private const val CHANNEL_ID = "bitchat_dm_notifications"
         private const val GEOHASH_CHANNEL_ID = "bitchat_geohash_notifications"
         private const val GROUP_KEY_DM = "bitchat_dm_group"

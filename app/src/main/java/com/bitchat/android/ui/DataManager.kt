@@ -12,7 +12,7 @@ import kotlin.random.Random
 class DataManager(private val context: Context) {
     
     companion object {
-        private const val TAG = "DataManager"
+        private const val TAG = "com.bitchat.DataManager"
         private const val KEY_MY_MONERO_ADDRESS = "my_monero_address"
     }
 

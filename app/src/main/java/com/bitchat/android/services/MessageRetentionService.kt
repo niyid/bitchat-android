@@ -19,7 +19,7 @@
 //class MessageRetentionService private constructor(private val context: Context) {
 //
 //    companion object {
-//        private const val TAG = "MessageRetentionService"
+//        private const val TAG = "com.bitchat.MessageRetentionService"
 //        private const val PREF_NAME = "message_retention"
 //        private const val KEY_FAVORITE_CHANNELS = "favorite_channels"
 //

@@ -15,7 +15,7 @@ import androidx.core.content.ContextCompat
 class PermissionManager(private val context: Context) {
 
     companion object {
-        private const val TAG = "PermissionManager"
+        private const val TAG = "com.bitchat.PermissionManager"
         private const val PREFS_NAME = "bitchat_permissions"
         private const val KEY_FIRST_TIME_COMPLETE = "first_time_onboarding_complete"
     }

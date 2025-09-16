@@ -18,7 +18,7 @@ import kotlin.collections.mutableSetOf
 class SecurityManager(private val encryptionService: EncryptionService, private val myPeerID: String) {
     
     companion object {
-        private const val TAG = "SecurityManager"
+        private const val TAG = "com.bitchat.SecurityManager"
         private const val MESSAGE_TIMEOUT = 300000L // 5 minutes (same as iOS)
         private const val CLEANUP_INTERVAL = 300000L // 5 minutes
         private const val MAX_PROCESSED_MESSAGES = 10000

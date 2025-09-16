@@ -29,7 +29,7 @@ class PrivateChatManager(
 ) {
 
     companion object {
-        private const val TAG = "PrivateChatManager"
+        private const val TAG = "com.bitchat.PrivateChatManager"
     }
 
     // Use centralized fingerprint management - NO LOCAL STORAGE

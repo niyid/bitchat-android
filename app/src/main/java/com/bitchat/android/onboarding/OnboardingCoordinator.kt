@@ -23,7 +23,7 @@ class OnboardingCoordinator(
 ) {
 
     companion object {
-        private const val TAG = "OnboardingCoordinator"
+        private const val TAG = "com.bitchat.OnboardingCoordinator"
     }
 
     private var permissionLauncher: ActivityResultLauncher<Array<String>>? = null

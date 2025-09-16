@@ -11,7 +11,7 @@ import kotlinx.coroutines.*
 class NostrTestManager(private val context: Context) {
     
     companion object {
-        private const val TAG = "NostrTestManager"
+        private const val TAG = "com.bitchat.NostrTestManager"
     }
     
     private val testScope = CoroutineScope(Dispatchers.Main + SupervisorJob())

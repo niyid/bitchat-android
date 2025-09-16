@@ -18,14 +18,15 @@ import com.m2049r.xmrwallet.model.WalletListener;
 import com.m2049r.xmrwallet.model.WalletManager;
 import com.m2049r.xmrwallet.model.PendingTransaction;
 import com.m2049r.xmrwallet.util.Helper;
+import android.util.Base64;
 
 /**
  * Enhanced Monero wallet manager for BitChat using Monerujo library
  * Handles wallet creation, transactions, balance management, and Bluetooth/Chat blob workflows
- * Configuration is loaded from wallet.properties file
+ * Configuration is loaded from wallet.properties file      
  */
 public class WalletSuite {
-    private static final String TAG = "com.bitchat.android.monero.wallet.WalletSuite";
+    private static final String TAG = "com.bitchat.WalletSuite";
     private static final String PROPERTIES_FILE = "wallet.properties";
     
     // Default values (fallbacks)
@@ -694,6 +695,8 @@ public class WalletSuite {
             try {
                 long atomicAmount = Helper.getAmountFromString(amount);
 
+                Log.d(TAG, "Preparing to create transaction blob");
+
                 PendingTransaction pendingTx = wallet.createTransaction(
                         toAddress,
                         "",
@@ -701,6 +704,8 @@ public class WalletSuite {
                         0,
                         PendingTransaction.Priority.Priority_Default.ordinal()
                 );
+ 
+                Log.d(TAG, "Transaction created; now to extract the blob");
 
                 if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
                     String error = pendingTx.getErrorString();
@@ -710,7 +715,7 @@ public class WalletSuite {
                 }
 
                 byte[] rawBlob = pendingTx.getSerializedTransaction();
-                String base64Blob = android.util.Base64.encodeToString(rawBlob, android.util.Base64.NO_WRAP);
+                String base64Blob = Base64.encodeToString(rawBlob, Base64.NO_WRAP);
                 String txId = pendingTx.getFirstTxId();
 
                 Log.d(TAG, "Created TX blob: " + txId);
@@ -729,19 +734,46 @@ public class WalletSuite {
         void onError(String error);
     }
 
-    public String submitTxBlob(byte[] blob) {
+    public void submitTxBlob(byte[] blob, TxBlobCallback callback) {
         if (!isInitialized || wallet == null) {
             Log.e(TAG, "Wallet not initialized for submitTxBlob");
-            return null;
+            if (callback != null) {
+                callback.onError("Wallet not initialized");
+            }
+            return;
         }
-        try {
-            // Convert byte[] to String (JNI expects serialized tx)
-            String txData = new String(blob);
-            return wallet.submitTransaction(txData);
-        } catch (Exception e) {
-            Log.e(TAG, "Error submitting tx blob", e);
-            return null;
+
+        executorService.execute(() -> {
+            try {
+                // Convert raw bytes to hex string for JNI
+                String txHex = bytesToHex(blob);
+
+                Log.d(TAG, "Submitting TX blob of length " + blob.length);
+
+                // JNI call expects hex string
+                String txId = wallet.submitTransaction(txHex);
+
+                if (callback != null) {
+                    // Still return base64 blob for consistency/logging
+                    String base64Blob = Base64.encodeToString(blob, Base64.NO_WRAP);
+                    mainHandler.post(() -> callback.onSuccess(txId, base64Blob));
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error submitting tx blob", e);
+                if (callback != null) {
+                    final String errorMsg = e.getMessage(); // make it effectively final
+                    mainHandler.post(() -> callback.onError(errorMsg));
+                }
+            }
+        });
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b & 0xff));
         }
+        return sb.toString();
     }
 
     // ==================== CONFIGURATION UTILITIES ====================

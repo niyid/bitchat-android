@@ -38,7 +38,7 @@ import javax.crypto.ShortBufferException;
  */
 class SymmetricState implements Destroyable {
 	
-	private static final String TAG = "AndroidSymmetric";
+	private static final String TAG = "com.bitchat.AndroidSymmetric";
 	
 	private String name;
 	private CipherState cipher;

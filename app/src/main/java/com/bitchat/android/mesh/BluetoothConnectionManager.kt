@@ -19,7 +19,7 @@ class BluetoothConnectionManager(
 ) : PowerManagerDelegate {
     
     companion object {
-        private const val TAG = "BluetoothConnectionManager"
+        private const val TAG = "com.bitchat.BluetoothConnectionManager"
     }
     
     // Core Bluetooth components

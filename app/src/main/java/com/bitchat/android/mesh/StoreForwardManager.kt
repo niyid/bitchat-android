@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentHashMap
 class StoreForwardManager {
     
     companion object {
-        private const val TAG = "StoreForwardManager"
+        private const val TAG = "com.bitchat.StoreForwardManager"
         private const val MESSAGE_CACHE_TIMEOUT = 43200000L  // 12 hours for regular peers
         private const val MAX_CACHED_MESSAGES = 100  // For regular peers
         private const val MAX_CACHED_MESSAGES_FAVORITES = 1000  // For favorites

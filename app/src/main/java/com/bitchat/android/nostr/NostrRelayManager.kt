@@ -23,7 +23,7 @@ class NostrRelayManager private constructor() {
         @JvmStatic
         val shared = NostrRelayManager()
         
-        private const val TAG = "NostrRelayManager"
+        private const val TAG = "com.bitchat.NostrRelayManager"
         
         /**
          * Get instance for Android compatibility (context-aware calls)

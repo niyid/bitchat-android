@@ -63,7 +63,7 @@ data class PeerInfo(
 class PeerManager {
     
     companion object {
-        private const val TAG = "PeerManager"
+        private const val TAG = "com.bitchat.PeerManager"
         private const val STALE_PEER_TIMEOUT = 180000L // 3 minutes (same as iOS)
         private const val CLEANUP_INTERVAL = 60000L // 1 minute
     }

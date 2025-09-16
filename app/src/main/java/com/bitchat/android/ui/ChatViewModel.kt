@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
 import com.bitchat.android.monero.wallet.WalletSuite
+import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
 
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -32,7 +33,7 @@ class ChatViewModel(
 ) : AndroidViewModel(application), BluetoothMeshDelegate {
 
     companion object {
-        private const val TAG = "ChatViewModel"
+        private const val TAG = "com.bitchat.ChatViewModel"
     }
 
     // State management
@@ -50,6 +51,9 @@ class ChatViewModel(
         override fun getMyPeerID(): String = meshService.myPeerID
     }
     
+    var moneroChatTransferManager: MoneroChatTransferManager? by mutableStateOf(null)
+        private set
+
     val privateChatManager = PrivateChatManager(state, messageManager, dataManager, noiseSessionDelegate)
     private val commandProcessor = CommandProcessor(state, messageManager, channelManager, privateChatManager)
     private val notificationManager = NotificationManager(application.applicationContext)
@@ -134,6 +138,8 @@ class ChatViewModel(
     init {
         // Note: Mesh service delegate is now set by MainActivity
         loadAndInitialize()
+        
+        moneroChatTransferManager = MoneroChatTransferManager(getApplication<Application>().applicationContext, this, walletSuite)
     }
     
     private fun loadAndInitialize() {
@@ -419,13 +425,14 @@ class ChatViewModel(
     }
     
     fun updatePeerMoneroAddress(peerID: String, address: String) {
+        Log.d(TAG, "updatePeerMoneroAddress: peerID: $peerID, address: $address")
         val updatedMap = _peerMoneroAddresses.value.toMutableMap()
         updatedMap[peerID] = address
         _peerMoneroAddresses.value = updatedMap
     }
         
     fun toggleFavorite(peerID: String) {
-        Log.d("ChatViewModel", "toggleFavorite called for peerID: $peerID")
+        Log.d(TAG, "toggleFavorite called for peerID: $peerID")
         privateChatManager.toggleFavorite(peerID)
 
         // Persist relationship in FavoritesPersistenceService when we have Noise key
@@ -1129,5 +1136,5 @@ class ChatViewModel(
             val router = com.bitchat.android.services.MessageRouter.getInstance(getApplication(), meshService)
             router.sendPrivate(messageContent, targetPeerID, recipientNicknameParam, messageId)
         }
-    }            
+    }               
 }

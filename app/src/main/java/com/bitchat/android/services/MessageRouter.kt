@@ -15,7 +15,7 @@ class MessageRouter private constructor(
     private val nostr: NostrTransport
 ) {
     companion object {
-        private const val TAG = "MessageRouter"
+        private const val TAG = "com.bitchat.MessageRouter"
         @Volatile private var INSTANCE: MessageRouter? = null
         fun tryGetInstance(): MessageRouter? = INSTANCE
         fun getInstance(context: Context, mesh: BluetoothMeshService): MessageRouter {

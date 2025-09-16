@@ -18,7 +18,7 @@ class NostrTransport(
 ) {
     
     companion object {
-        private const val TAG = "NostrTransport"
+        private const val TAG = "com.bitchat.NostrTransport"
         private const val READ_ACK_INTERVAL = 350L // ~3 per second (0.35s interval like iOS)
         
         @Volatile

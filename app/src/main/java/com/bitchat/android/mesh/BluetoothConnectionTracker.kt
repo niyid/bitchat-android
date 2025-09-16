@@ -19,7 +19,7 @@ class BluetoothConnectionTracker(
 ) {
     
     companion object {
-        private const val TAG = "BluetoothConnectionTracker"
+        private const val TAG = "com.bitchat.BluetoothConnectionTracker"
         private const val CONNECTION_RETRY_DELAY = 5000L
         private const val MAX_CONNECTION_ATTEMPTS = 3
         private const val CLEANUP_DELAY = 500L

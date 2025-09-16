@@ -18,7 +18,7 @@ import kotlin.random.Random
 class MessageHandler(private val myPeerID: String) {
     
     companion object {
-        private const val TAG = "MessageHandler"
+        private const val TAG = "com.bitchat.MessageHandler"
     }
     
     // Delegate for callbacks

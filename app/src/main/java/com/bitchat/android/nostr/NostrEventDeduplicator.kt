@@ -21,7 +21,7 @@ class NostrEventDeduplicator(
     private val maxCapacity: Int = DEFAULT_CAPACITY
 ) {
     companion object {
-        private const val TAG = "NostrDeduplicator"
+        private const val TAG = "com.bitchat.NostrDeduplicator"
         private const val DEFAULT_CAPACITY = 10000
         
         @Volatile

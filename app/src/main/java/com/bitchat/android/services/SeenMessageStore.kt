@@ -11,7 +11,7 @@ import com.google.gson.Gson
  */
 class SeenMessageStore private constructor(private val context: Context) {
     companion object {
-        private const val TAG = "SeenMessageStore"
+        private const val TAG = "com.bitchat.SeenMessageStore"
         private const val STORAGE_KEY = "seen_message_store_v1"
         private const val MAX_IDS = 10_000
 

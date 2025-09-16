@@ -36,7 +36,7 @@ class NostrGeohashService(
 ) {
     
     companion object {
-        private const val TAG = "NostrGeohashService"
+        private const val TAG = "com.bitchat.NostrGeohashService"
         
         @Volatile
         private var INSTANCE: NostrGeohashService? = null

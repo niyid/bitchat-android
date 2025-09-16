@@ -24,7 +24,7 @@ import com.google.gson.JsonSyntaxException
 class LocationChannelManager private constructor(private val context: Context) {
     
     companion object {
-        private const val TAG = "LocationChannelManager"
+        private const val TAG = "com.bitchat.LocationChannelManager"
         
         @Volatile
         private var INSTANCE: LocationChannelManager? = null

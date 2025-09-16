@@ -18,7 +18,7 @@ data class NostrIdentity(
 ) {
     
     companion object {
-        private const val TAG = "NostrIdentity"
+        private const val TAG = "com.bitchat.NostrIdentity"
         
         /**
          * Generate a new Nostr identity
@@ -94,7 +94,7 @@ data class NostrIdentity(
  * Manages persistent storage and per-geohash identity derivation
  */
 object NostrIdentityBridge {
-    private const val TAG = "NostrIdentityBridge"
+    private const val TAG = "com.bitchat.NostrIdentityBridge"
     private const val NOSTR_PRIVATE_KEY = "nostr_private_key"
     private const val DEVICE_SEED_KEY = "nostr_device_seed"
     

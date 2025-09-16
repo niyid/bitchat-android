@@ -13,7 +13,7 @@ import kotlinx.coroutines.*
 class NostrClient private constructor(private val context: Context) {
     
     companion object {
-        private const val TAG = "NostrClient"
+        private const val TAG = "com.bitchat.NostrClient"
         
         @Volatile
         private var INSTANCE: NostrClient? = null

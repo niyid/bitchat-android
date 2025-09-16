@@ -59,7 +59,7 @@ interface FavoritesChangeListener {
 class FavoritesPersistenceService private constructor(private val context: Context) {
     
     companion object {
-        private const val TAG = "FavoritesPersistenceService"
+        private const val TAG = "com.bitchat.FavoritesPersistenceService"
         private const val FAVORITES_KEY = "favorite_relationships"
         
         @Volatile

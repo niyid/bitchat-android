@@ -41,7 +41,7 @@ class BluetoothPacketBroadcaster(
 ) {
     
     companion object {
-        private const val TAG = "BluetoothPacketBroadcaster"
+        private const val TAG = "com.bitchat.BluetoothPacketBroadcaster"
         private const val CLEANUP_DELAY = 500L
     }
     

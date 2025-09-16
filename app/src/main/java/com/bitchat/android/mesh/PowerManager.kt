@@ -18,7 +18,7 @@ import kotlin.math.max
 class PowerManager(private val context: Context) {
     
     companion object {
-        private const val TAG = "PowerManager"
+        private const val TAG = "com.bitchat.PowerManager"
         
         // Battery thresholds
         private const val CRITICAL_BATTERY = 10

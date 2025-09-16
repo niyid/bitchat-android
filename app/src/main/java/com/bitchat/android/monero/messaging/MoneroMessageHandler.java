@@ -11,7 +11,7 @@ import java.math.BigInteger;
  */
 public class MoneroMessageHandler {
     
-    private static final String TAG = "MoneroMessageHandler";
+    private static final String TAG = "com.bitchat.MoneroMessageHandler";
     
     // Message types
     public static final String TYPE_MONERO_PAYMENT = "monero_payment";
