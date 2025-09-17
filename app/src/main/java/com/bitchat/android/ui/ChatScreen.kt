@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -283,14 +284,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     if (messageText.text.trim().isNotEmpty()) {
                         if (isMoneroModeActive) {
                             // Handle Monero send
-                            Log.d(TAG, "Sending Monero now...")
+                            var receiverMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
+                            Log.d(TAG, "Sending Monero now to $receiverMoneroAddress")
                             handleMoneroSend(
                                 amount = messageText.text.trim(),
                                 walletSuite = walletSuite,
                                 moneroChatTransferManager = moneroChatTransferManager,
                                 selectedPrivatePeer = selectedPrivatePeer,
                                 canReceiveMonero = canReceiveMonero,
-                                peerMoneroAddresses = peerMoneroAddresses,
+                                receiverMoneroAddress = receiverMoneroAddress,
                                 viewModel = viewModel,
                                 onSuccess = {
                                     Log.d(TAG, "Monero of ${messageText.text.trim()} has been sent!")
@@ -502,7 +504,7 @@ private fun handleMoneroSend(
     moneroChatTransferManager: MoneroChatTransferManager?,
     selectedPrivatePeer: String?,
     canReceiveMonero: Boolean,
-    peerMoneroAddresses: Map<String, String>,
+    receiverMoneroAddress: String?,
     viewModel: ChatViewModel,
     onSuccess: () -> Unit,
     onError: (String) -> Unit
@@ -514,8 +516,7 @@ private fun handleMoneroSend(
         return
     }
 
-    val peerMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
-    if (peerMoneroAddress == null) {
+    if (receiverMoneroAddress == null) {
         val requestMessage = "[REQUEST_MONERO_ADDRESS]"
         viewModel.sendDirectMessage(selectedPrivatePeer, requestMessage)
         val msg = "Peer address not available. Address request sent."
@@ -531,7 +532,7 @@ private fun handleMoneroSend(
             amount = amount,
             selectedPrivatePeer = selectedPrivatePeer,
             canReceiveMonero = canReceiveMonero,
-            peerMoneroAddresses = peerMoneroAddresses,
+            receiverMoneroAddress = receiverMoneroAddress,
             onSuccess = {
                 Log.i(TAG, "Monero payment send request completed successfully.")
                 viewModel.addSystemMessage("âœ… Monero payment initiated successfully.")
@@ -682,7 +683,7 @@ private fun ChatInputSection(
                         enabled = messageText.text.isNotBlank()
                     ) {
                         Icon(
-                            imageVector = if (isMoneroModeActive) Icons.Default.CurrencyExchange else Icons.Default.Send,
+                            imageVector = if (isMoneroModeActive) Icons.Default.CurrencyExchange else Icons.AutoMirrored.Filled.Send,
                             contentDescription = if (isMoneroModeActive) "Send Monero" else "Send message",
                             tint = if (messageText.text.isNotBlank()) Color.White else colorScheme.onSurface.copy(alpha = 0.4f)
                         )

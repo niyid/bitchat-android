@@ -95,7 +95,7 @@ class MoneroChatTransferManager(
         amount: String,
         selectedPrivatePeer: String?,
         canReceiveMonero: Boolean,
-        peerMoneroAddresses: Map<String, String>,
+        receiverMoneroAddress: String?,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
@@ -107,16 +107,15 @@ class MoneroChatTransferManager(
             return
         }
 
-        val peerMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
-        if (peerMoneroAddress == null) {
+        if (receiverMoneroAddress == null) {
             Log.w(TAG, "Peer $selectedPrivatePeer has no known Monero address. Requesting...")
             viewModel.sendDirectMessage(selectedPrivatePeer, "[REQUEST_MONERO_ADDRESS]")
             onError("Peer address not available. Address request sent.")
             return
         }
 
-        Log.i(TAG, "Creating tx blob for $amount XMR to address=$peerMoneroAddress")
-        walletSuite?.createTxBlob(peerMoneroAddress, amount, object : WalletSuite.TxBlobCallback {
+        Log.i(TAG, "Creating tx blob for $amount XMR to address=$receiverMoneroAddress")
+        walletSuite?.createTxBlob(receiverMoneroAddress, amount, object : WalletSuite.TxBlobCallback {
             override fun onSuccess(txId: String, base64Blob: String) {
                 Log.i(TAG, "Tx blob created successfully. txId=$txId, blobSize=${base64Blob.length} chars")
 
@@ -127,7 +126,7 @@ class MoneroChatTransferManager(
                     timestamp = System.currentTimeMillis(),
                     metadata = mapOf(
                         "amount" to amount,
-                        "destination_address" to peerMoneroAddress,
+                        "destination_address" to receiverMoneroAddress,
                         "source" to "bitchat_wallet"
                     )
                 )
@@ -194,8 +193,8 @@ class MoneroChatTransferManager(
                         onError("File transfer peer: $fromPeer")
                     }
 
-                    override fun onTransferError(error: String, fromPeer: String) {
-                        Log.e(TAG, "File transfer error: $error, peer=$fromPeer")
+                    override fun onTransferError(error: String, txId: String) {
+                        Log.e(TAG, "File transfer error: $error, txId=$txId")
                         onError("File transfer error: $error")
                     }
 
