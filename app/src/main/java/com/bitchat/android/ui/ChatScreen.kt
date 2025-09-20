@@ -53,7 +53,7 @@ private const val TAG = "com.bitchat.ChatScreen"
 
 /**
  * Main ChatScreen - REFACTORED to use component-based architecture with Monero integration
- * Modified to automatically share wallet addresses with connected peers
+ * Modified to properly share wallet addresses only during private chat sessions
  */
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
@@ -101,7 +101,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var forceScrollToBottom by remember { mutableStateOf(false) }
     var isScrolledUp by remember { mutableStateOf(false) }
 
-    // Initialize Monero components - FIXED: Use ViewModel methods instead of direct assignment
+    // Initialize Monero components - FIXED: Store address locally but don't auto-share
     LaunchedEffect(Unit) {
         viewModel.initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
             override fun onWalletInitialized(success: Boolean, message: String) {
@@ -120,12 +120,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         }
                     })
                     
-                    // Get wallet address and prepare for auto-sharing
+                    // Get wallet address and store it locally - NO AUTO-SHARING
                     walletSuite?.getAddress(object : WalletSuite.AddressCallback {
                         override fun onSuccess(address: String) {
                             myWalletAddress = address
-                            // Auto-share address with all connected peers
-                            shareAddressWithConnectedPeers(address, connectedPeers, viewModel)
+                            Log.d(TAG, "Wallet address retrieved: $address")
                         }
                         override fun onError(error: String) {
                             viewModel.updateWalletStatusMessage("Address error: $error")
@@ -156,17 +155,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
 
         viewModel.initializeMoneroMessageHandler(object : MoneroMessageHandler.MoneroMessageListener {
             override fun onPaymentReceived(payment: MoneroMessageHandler.MoneroPaymentMessage) {
-                val paymentMessage = "ðŸ’° Received ${payment.amount} XMR from ${payment.fromUser}"
+                val paymentMessage = "💰 Received ${payment.amount} XMR from ${payment.fromUser}"
                 viewModel.addSystemMessage(paymentMessage)
             }
 
             override fun onAddressShared(address: String, fromUser: String) {
                 viewModel.addPeerMoneroAddress(fromUser, address)
-                viewModel.addSystemMessage("ðŸ“˜ $fromUser shared Monero address")
+                viewModel.addSystemMessage("🔗 $fromUser shared Monero address")
             }
 
             override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
-                val requestMessage = "ðŸ’³ ${request.fromUser} requested ${request.amount} XMR" +
+                val requestMessage = "💳 ${request.fromUser} requested ${request.amount} XMR" +
                     if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
                 viewModel.addSystemMessage(requestMessage)
             }
@@ -177,10 +176,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
         })
     }
 
-    // Auto-share wallet address with newly connected peers
-    LaunchedEffect(connectedPeers, myWalletAddress) {
-        if (isWalletReady && myWalletAddress != null) {
-            shareAddressWithConnectedPeers(myWalletAddress!!, connectedPeers, viewModel)
+    // FIXED: Share wallet address only when private chat is initiated
+    LaunchedEffect(selectedPrivatePeer, isWalletReady, myWalletAddress) {
+        if (selectedPrivatePeer != null && isWalletReady && myWalletAddress != null) {
+            val peer = selectedPrivatePeer!!   // <-- FIX: capture in local variable
+            if (!peerMoneroAddresses.containsKey(peer)) {
+                Log.d(TAG, "Sharing wallet address with private chat peer: $peer")
+                viewModel.shareMoneroAddressWithPeer(peer, myWalletAddress!!)
+            }
         }
     }
 
@@ -200,9 +203,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 
     // Check if current chat partner can receive Monero (for private chats)
-    // Now more permissive since addresses are auto-shared
+    // FIXED: Use consistent key for address lookup
     val canReceiveMonero = selectedPrivatePeer != null && isWalletReady &&
-                          (peerMoneroAddresses.containsKey(selectedPrivatePeer) || connectedPeers.contains(selectedPrivatePeer))
+                          peerMoneroAddresses.containsKey(selectedPrivatePeer)
 
     // Use WindowInsets to handle keyboard properly
     Box(
@@ -280,12 +283,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     viewModel.updateMentionSuggestions(newText.text)
                 },
                 onSend = {
-                    Log.d(TAG, "Sending Monero now...")
+                    Log.d(TAG, "Sending message/Monero now...")
                     if (messageText.text.trim().isNotEmpty()) {
                         if (isMoneroModeActive) {
-                            // Handle Monero send
-                            var receiverMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
-                            Log.d(TAG, "Sending Monero now to $receiverMoneroAddress")
+                            // Handle Monero send - FIXED: Use selectedPrivatePeer consistently
+                            val receiverMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
+                            Log.d(TAG, "Sending Monero to $selectedPrivatePeer with address: $receiverMoneroAddress")
                             handleMoneroSend(
                                 amount = messageText.text.trim(),
                                 walletSuite = walletSuite,
@@ -302,8 +305,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                                 },
                                 onError = { error ->
                                     Log.e(TAG, "An error of ${error} has occurred")
-                                    // Handle error (show toast or error message)
-                                    viewModel.addSystemMessage("âŒ Payment error: $error")
+                                    viewModel.addSystemMessage("❌ Payment error: $error")
                                 }
                             )
                         } else {
@@ -481,23 +483,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     )
 }
 
-// NEW FUNCTION: Auto-share wallet address with connected peers
-private fun shareAddressWithConnectedPeers(
-    walletAddress: String,
-    connectedPeers: List<String>,
-    viewModel: ChatViewModel
-) {
-    if (connectedPeers.isEmpty()) return
-    
-    connectedPeers.forEach { peerName ->
-        // Send address sharing message to each connected peer
-        val addressMessage = "[MONERO_ADDRESS]$walletAddress"
-        Log.d(TAG, "Sharing wallet address ($walletAddress) with peer: $peerName")
-        viewModel.sendDirectMessage(peerName, addressMessage)
-    }
-}
-
-// Monero send handler function - Updated to handle auto-shared addresses
+// FIXED: Monero send handler function with consistent key usage
 private fun handleMoneroSend(
     amount: String,
     walletSuite: WalletSuite?,
@@ -512,16 +498,17 @@ private fun handleMoneroSend(
     if (walletSuite == null || selectedPrivatePeer == null || !canReceiveMonero) {
         val msg = "Cannot send Monero: wallet not ready or peer cannot receive Monero"
         onError(msg)
-        viewModel.addSystemMessage("âŒ $msg")
+        viewModel.addSystemMessage("❌ $msg")
         return
     }
 
     if (receiverMoneroAddress == null) {
+        // Request address from the peer using the consistent key
         val requestMessage = "[REQUEST_MONERO_ADDRESS]"
         viewModel.sendDirectMessage(selectedPrivatePeer, requestMessage)
         val msg = "Peer address not available. Address request sent."
         onError(msg)
-        viewModel.addSystemMessage("âš ï¸ $msg")
+        viewModel.addSystemMessage("⏳ $msg")
         return
     }
 
@@ -535,25 +522,25 @@ private fun handleMoneroSend(
             receiverMoneroAddress = receiverMoneroAddress,
             onSuccess = {
                 Log.i(TAG, "Monero payment send request completed successfully.")
-                viewModel.addSystemMessage("âœ… Monero payment initiated successfully.")
+                viewModel.addSystemMessage("✅ Monero payment initiated successfully.")
                 onSuccess()
             },
             onError = { error ->
                 Log.e(TAG, "Monero send failed: $error")
-                viewModel.addSystemMessage("âŒ Failed to send Monero payment: $error")
+                viewModel.addSystemMessage("❌ Failed to send Monero payment: $error")
                 onError(error)
             }
         ) ?: run {
             val msg = "Monero transfer system is not available."
             Log.w(TAG, msg)
-            viewModel.addSystemMessage("âŒ $msg")
+            viewModel.addSystemMessage("❌ $msg")
             onError(msg)
         }
 
     } catch (e: Exception) {
         val msg = "Payment failed due to error: ${e.message}"
         Log.e(TAG, msg, e)
-        viewModel.addSystemMessage("âŒ $msg")
+        viewModel.addSystemMessage("❌ $msg")
         onError(msg)
     }
 }
@@ -982,7 +969,7 @@ private fun AboutSheet(
                 
                 features.forEach { feature ->
                     Text(
-                        text = "â€¢ $feature",
+                        text = "• $feature",
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
@@ -1028,7 +1015,7 @@ private fun LocationChannelItem(
                     style = MaterialTheme.typography.titleMedium
                 )
                 Text(
-                    text = "$distance â€¢ $memberCount members",
+                    text = "$distance • $memberCount members",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 )

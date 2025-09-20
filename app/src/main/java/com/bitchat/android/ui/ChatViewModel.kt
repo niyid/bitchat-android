@@ -25,7 +25,7 @@ import kotlin.random.Random
 
 /**
  * Refactored ChatViewModel - Main coordinator for bitchat functionality
- * Delegates specific responsibilities to specialized managers while maintaining 100% iOS compatibility
+ * FIXED: Proper Monero address sharing only during private chat initiation
  */
 class ChatViewModel(
     application: Application,
@@ -115,9 +115,11 @@ class ChatViewModel(
     val geohashPeople: LiveData<List<GeoPerson>> = state.geohashPeople
     val teleportedGeo: LiveData<Set<String>> = state.teleportedGeo
     val geohashParticipantCounts: LiveData<Map<String, Int>> = state.geohashParticipantCounts
-    // Map of peer -> Monero address
+    
+    // FIXED: Map of peer -> Monero address using consistent keys
     private val _peerMoneroAddresses = mutableStateOf(emptyMap<String, String>())
     val peerMoneroAddresses: Map<String, String> get() = _peerMoneroAddresses.value
+    
     var walletSuite by mutableStateOf<WalletSuite?>(null) 
         private set
     var moneroMessageHandler by mutableStateOf(MoneroMessageHandler())
@@ -231,7 +233,7 @@ class ChatViewModel(
                     addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                 }
             })
-            initializeWallet(1)
+            initializeWallet()
         }
     }
 
@@ -258,8 +260,25 @@ class ChatViewModel(
         walletStatusMessage = message
     }
 
+    // FIXED: Consistent key usage for address storage
     fun addPeerMoneroAddress(peer: String, address: String) {
+        Log.d(TAG, "Adding Monero address for peer: $peer -> $address")
         _peerMoneroAddresses.value = _peerMoneroAddresses.value + (peer to address)
+    }
+
+    fun updatePeerMoneroAddress(peerID: String, address: String) {
+        Log.d(TAG, "updatePeerMoneroAddress: peerID: $peerID, address: $address")
+        val updatedMap = _peerMoneroAddresses.value.toMutableMap()
+        updatedMap[peerID] = address
+        _peerMoneroAddresses.value = updatedMap
+    }
+
+    /**
+     * FIXED: Share Monero address with a specific peer during private chat initiation
+     */
+    fun shareMoneroAddressWithPeer(peerID: String, myWalletAddress: String) {
+        Log.d(TAG, "Sharing Monero address with peer: $peerID")
+        sendDirectMessage(peerID, "[MONERO_ADDRESS]$myWalletAddress")
     }
 
     override fun onCleared() {
@@ -416,19 +435,10 @@ class ChatViewModel(
         }
     }
     
-
-    
     // MARK: - Utility Functions
     
     fun getPeerIDForNickname(nickname: String): String? {
         return meshService.getPeerNicknames().entries.find { it.value == nickname }?.key
-    }
-    
-    fun updatePeerMoneroAddress(peerID: String, address: String) {
-        Log.d(TAG, "updatePeerMoneroAddress: peerID: $peerID, address: $address")
-        val updatedMap = _peerMoneroAddresses.value.toMutableMap()
-        updatedMap[peerID] = address
-        _peerMoneroAddresses.value = updatedMap
     }
         
     fun toggleFavorite(peerID: String) {
@@ -528,22 +538,6 @@ class ChatViewModel(
         state.setPeerRSSI(rssiValues)
     }
     
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
     // MARK: - Debug and Troubleshooting
     
     fun getDebugStatus(): String {
@@ -607,12 +601,52 @@ class ChatViewModel(
     
     // MARK: - BluetoothMeshDelegate Implementation (delegated)
     
+    // FIXED: Message handling to use correct peer identification and reciprocal address sharing
     override fun didReceiveMessage(message: BitchatMessage) {
         // Detect if this is a Monero address broadcast
-        if (message.content.startsWith("MY_MONERO_ADDRESS:")) {
-            val address = message.content.removePrefix("MY_MONERO_ADDRESS:")
-            updatePeerMoneroAddress(message.senderPeerID ?: message.sender, address)
-            Log.d(TAG, "Received Monero address from ${message.senderPeerID}: $address")
+        if (message.content.startsWith("[MONERO_ADDRESS]")) {
+            val address = message.content.removePrefix("[MONERO_ADDRESS]")
+            // FIXED: Use consistent key for storing address - prefer senderPeerID over sender nickname
+            val peerKey = message.senderPeerID ?: message.sender
+            updatePeerMoneroAddress(peerKey, address)
+            Log.d(TAG, "Received Monero address from $peerKey: $address")
+            
+            // FIXED: If we're in a private chat with this peer and have our address, share back automatically
+            if (state.getSelectedPrivateChatPeerValue() == peerKey && isWalletReady) {
+                // Check if we haven't already shared with this peer
+                val alreadyShared = _peerMoneroAddresses.value.containsKey(peerKey)
+                if (!alreadyShared) {
+                    // Get our wallet address and share it back
+                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                        override fun onSuccess(myAddress: String) {
+                            shareMoneroAddressWithPeer(peerKey, myAddress)
+                            Log.d(TAG, "Reciprocally shared our address with $peerKey")
+                        }
+                        override fun onError(error: String) {
+                            Log.e(TAG, "Failed to get address for reciprocal sharing: $error")
+                        }
+                    })
+                }
+            }
+        } else if (message.content.startsWith("[REQUEST_MONERO_ADDRESS]")) {
+            // FIXED: Handle address requests using consistent peer identification
+            val requesterPeerID = message.senderPeerID ?: message.sender
+            Log.d(TAG, "Received Monero address request from: $requesterPeerID")
+            
+            // If we have a wallet ready, share our address
+            if (isWalletReady) {
+                walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                    override fun onSuccess(myAddress: String) {
+                        shareMoneroAddressWithPeer(requesterPeerID, myAddress)
+                        Log.d(TAG, "Responded to address request from $requesterPeerID")
+                    }
+                    override fun onError(error: String) {
+                        Log.e(TAG, "Failed to get address for request response: $error")
+                    }
+                })
+            } else {
+                Log.w(TAG, "Cannot respond to address request - wallet not ready")
+            }
         } else {
             meshDelegateHandler.didReceiveMessage(message)
         }
@@ -621,14 +655,8 @@ class ChatViewModel(
     override fun didUpdatePeerList(peers: List<String>) {
         meshDelegateHandler.didUpdatePeerList(peers)
         
-        // Automatically share our Monero address when new peers connect
-        val myMoneroAddress = dataManager.loadMoneroAddress()
-        peers.forEach { peerID ->
-            if (!_peerMoneroAddresses.value.containsKey(peerID)) {
-                meshService.sendMessage("MY_MONERO_ADDRESS:$myMoneroAddress", emptyList(), null)
-                Log.d(TAG, "Shared Monero address with $peerID")
-            }
-        }
+        // REMOVED: Automatic sharing with all connected peers
+        // Address sharing now only happens during private chat initiation
     }
     
     override fun didReceiveChannelLeave(channel: String, fromPeer: String) {
@@ -660,7 +688,7 @@ class ChatViewModel(
     // MARK: - Emergency Clear
     
     fun panicClearAllData() {
-        Log.w(TAG, "Ã°Å¸Å¡Â¨ PANIC MODE ACTIVATED - Clearing all sensitive data")
+        Log.w(TAG, "🚨 PANIC MODE ACTIVATED - Clearing all sensitive data")
         
         // Clear all UI managers
         messageManager.clearAllMessages()
@@ -680,12 +708,15 @@ class ChatViewModel(
         // Clear geohash message history
         nostrGeohashService.clearGeohashMessageHistory()
         
+        // FIXED: Clear Monero addresses
+        _peerMoneroAddresses.value = emptyMap()
+        
         // Reset nickname
         val newNickname = "anon${Random.nextInt(1000, 9999)}"
         state.setNickname(newNickname)
         dataManager.saveNickname(newNickname)
         
-        Log.w(TAG, "Ã°Å¸Å¡Â¨ PANIC MODE COMPLETED - All sensitive data cleared")
+        Log.w(TAG, "🚨 PANIC MODE COMPLETED - All sensitive data cleared")
         
         // Note: Mesh service restart is now handled by MainActivity
         // This method now only clears data, not mesh service lifecycle
@@ -699,9 +730,9 @@ class ChatViewModel(
             // Request mesh service to clear all its internal data
             meshService.clearAllInternalData()
             
-            Log.d(TAG, "Ã¢Å“â€¦ Cleared all mesh service data")
+            Log.d(TAG, "✅ Cleared all mesh service data")
         } catch (e: Exception) {
-            Log.e(TAG, "Ã¢ÂÅ’ Error clearing mesh service data: ${e.message}")
+            Log.e(TAG, "❌ Error clearing mesh service data: ${e.message}")
         }
     }
     
@@ -717,24 +748,16 @@ class ChatViewModel(
             try {
                 val identityManager = com.bitchat.android.identity.SecureIdentityStateManager(getApplication())
                 identityManager.clearIdentityData()
-                Log.d(TAG, "Ã¢Å“â€¦ Cleared secure identity state")
+                Log.d(TAG, "✅ Cleared secure identity state")
             } catch (e: Exception) {
                 Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
             }
             
-            Log.d(TAG, "Ã¢Å“â€¦ Cleared all cryptographic data")
+            Log.d(TAG, "✅ Cleared all cryptographic data")
         } catch (e: Exception) {
-            Log.e(TAG, "Ã¢ÂÅ’ Error clearing cryptographic data: ${e.message}")
+            Log.e(TAG, "❌ Error clearing cryptographic data: ${e.message}")
         }
     }
-    
-
-    
-
-    
-
-    
-
     
     /**
      * Get participant count for a specific geohash (5-minute activity window)
@@ -757,18 +780,6 @@ class ChatViewModel(
         nostrGeohashService.endGeohashSampling()
     }
     
-
-    
-
-    
-
-    
-
-    
-
-    
-
-    
     /**
      * Check if a geohash person is teleported (iOS-compatible)
      */
@@ -785,10 +796,6 @@ class ChatViewModel(
         }
     }
     
-
-    
-
-    
     fun selectLocationChannel(channel: com.bitchat.android.geohash.ChannelID) {
         nostrGeohashService.selectLocationChannel(channel)
     }
@@ -799,14 +806,6 @@ class ChatViewModel(
     fun blockUserInGeohash(targetNickname: String) {
         nostrGeohashService.blockUserInGeohash(targetNickname)
     }
-    
-
-    
-
-    
-
-    
-
     
     // MARK: - Navigation Management
     
@@ -880,6 +879,7 @@ class ChatViewModel(
     fun colorForNostrPubkey(pubkeyHex: String, isDark: Boolean): androidx.compose.ui.graphics.Color {
         return nostrGeohashService.colorForNostrPubkey(pubkeyHex, isDark)
     }
+    
     // Transaction tracking map
     private val transactionMessages = mutableMapOf<String, BitchatMessage>()
     
@@ -987,11 +987,11 @@ class ChatViewModel(
     private fun updateExistingTransactionMessage(message: BitchatMessage, txId: String, status: String) {
         try {
             val statusEmoji = when (status.lowercase()) {
-                "confirmed" -> "âœ…"
-                "failed" -> "âŒ"
-                "pending" -> "â³"
-                "cancelled" -> "ðŸš«"
-                else -> "â„¹ï¸"
+                "confirmed" -> "✅"
+                "failed" -> "❌"
+                "pending" -> "⏳"
+                "cancelled" -> "🚫"
+                else -> "⏸️"
             }
             
             // Create updated message content
@@ -1066,7 +1066,7 @@ class ChatViewModel(
      * Add Monero transaction message with tracking
      */
     fun addMoneroTransactionMessage(txId: String, amount: String, recipientAddress: String) {
-        val content = "Sending $amount XMR... (â³ pending)"
+        val content = "Sending $amount XMR... (⏳ pending)"
         val transactionMessage = BitchatMessage(
             id = "tx_$txId",
             sender = "System",
@@ -1116,6 +1116,7 @@ class ChatViewModel(
     /**
      * Send a direct message to a specific peer without switching to private chat view
      * This is useful for sending system messages or notifications
+     * FIXED: Uses consistent peer identification for Monero address sharing
      */
     fun sendDirectMessage(peerID: String, content: String) {
         if (content.isEmpty()) return
@@ -1136,5 +1137,5 @@ class ChatViewModel(
             val router = com.bitchat.android.services.MessageRouter.getInstance(getApplication(), meshService)
             router.sendPrivate(messageContent, targetPeerID, recipientNicknameParam, messageId)
         }
-    }               
+    }
 }

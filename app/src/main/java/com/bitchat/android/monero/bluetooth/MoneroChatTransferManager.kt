@@ -114,39 +114,45 @@ class MoneroChatTransferManager(
             return
         }
 
-        Log.i(TAG, "Creating tx blob for $amount XMR to address=$receiverMoneroAddress")
-        walletSuite?.createTxBlob(receiverMoneroAddress, amount, object : WalletSuite.TxBlobCallback {
-            override fun onSuccess(txId: String, base64Blob: String) {
-                Log.i(TAG, "Tx blob created successfully. txId=$txId, blobSize=${base64Blob.length} chars")
+        try {
+            Log.i(TAG, "Creating tx blob for $amount XMR to address=$receiverMoneroAddress")
+            walletSuite?.createTxBlob(receiverMoneroAddress, amount, object : WalletSuite.TxBlobCallback {
+                override fun onSuccess(txId: String, base64Blob: String) {
+                    Log.i(TAG, "Tx blob created successfully. txId=$txId, blobSize=${base64Blob.length} chars")
 
-                val transaction = BitchatMoneroTransfer.MoneroTransaction(
-                    blob = base64Blob,
-                    txHash = txId,
-                    fee = null,
-                    timestamp = System.currentTimeMillis(),
-                    metadata = mapOf(
-                        "amount" to amount,
-                        "destination_address" to receiverMoneroAddress,
-                        "source" to "bitchat_wallet"
+                    val transaction = BitchatMoneroTransfer.MoneroTransaction(
+                        blob = base64Blob,
+                        txHash = txId,
+                        fee = null,
+                        timestamp = System.currentTimeMillis(),
+                        metadata = mapOf(
+                            "amount" to amount,
+                            "destination_address" to receiverMoneroAddress,
+                            "source" to "bitchat_wallet"
+                        )
                     )
-                )
 
-                if (base64Blob.length < MONERO_FILE_THRESHOLD) {
-                    Log.d(TAG, "Sending tx via message (size under threshold).")
-                    sendViaMessage(selectedPrivatePeer, base64Blob, txId)
-                } else {
-                    Log.d(TAG, "Sending tx via file (size exceeds threshold).")
-                    sendViaFile(transaction, selectedPrivatePeer, onSuccess, onError)
+                    if (base64Blob.length < MONERO_FILE_THRESHOLD) {
+                        Log.d(TAG, "Sending tx via message (size under threshold).")
+                        sendViaMessage(selectedPrivatePeer, base64Blob, txId)
+                    } else {
+                        Log.d(TAG, "Sending tx via file (size exceeds threshold).")
+                        sendViaFile(transaction, selectedPrivatePeer, onSuccess, onError)
+                    }
+
+                    viewModel.addSystemMessage("💰 Created tx for $amount XMR – TxID: $txId")
                 }
 
-                viewModel.addSystemMessage("💰 Created tx for $amount XMR – TxID: $txId")
-            }
-
-            override fun onError(error: String) {
-                Log.e(TAG, "Failed to create tx blob: $error")
-                onError("Payment failed: $error")
-            }
-        })
+                override fun onError(error: String) {
+                    Log.e(TAG, "Failed to create tx blob: $error")
+                    onError("Payment failed: $error")
+                }
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception in handleMoneroSend", e)
+        } catch (e: Error) {
+            Log.e(TAG, "Exception in handleMoneroSend", e)
+        }
     }
 
     /**
