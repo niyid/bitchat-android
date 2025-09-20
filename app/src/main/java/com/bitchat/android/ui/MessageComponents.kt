@@ -21,18 +21,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.AnnotatedString
 import com.bitchat.android.model.BitchatMessage
 import com.bitchat.android.model.DeliveryStatus
 import com.bitchat.android.mesh.BluetoothMeshService
 import com.bitchat.android.monero.wallet.WalletSuite
 import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
+
 import android.util.Log
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
  * Message display components for ChatScreen
- * Extracted from ChatScreen.kt for better organization
  */
 private const val TAG = "com.bitchat.MessageComponents"
 
@@ -53,7 +54,6 @@ fun MessagesList(
     val listState = rememberLazyListState()
     var hasScrolledToInitialPosition by remember { mutableStateOf(false) }
 
-    // Smart scroll
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             val layoutInfo = listState.layoutInfo
@@ -71,7 +71,6 @@ fun MessagesList(
         }
     }
 
-    // Track scroll away from bottom
     val isAtLatest by remember {
         derivedStateOf {
             val firstVisibleIndex = listState.layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: -1
@@ -82,7 +81,6 @@ fun MessagesList(
         onScrolledUpChanged?.invoke(!isAtLatest)
     }
 
-    // Force scroll to bottom
     LaunchedEffect(forceScrollToBottom) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(0)
@@ -100,6 +98,7 @@ fun MessagesList(
             MessageItem(
                 message = message,
                 currentUserNickname = currentUserNickname,
+                meshService = meshService,
                 onNicknameClick = onNicknameClick,
                 onMessageLongPress = onMessageLongPress,
                 walletSuite = walletSuite,
@@ -114,27 +113,24 @@ fun MessagesList(
 fun MessageItem(
     message: BitchatMessage,
     currentUserNickname: String,
+    meshService: BluetoothMeshService,
     onNicknameClick: ((String) -> Unit)?,
     onMessageLongPress: ((BitchatMessage) -> Unit)?,
     walletSuite: WalletSuite?,
     moneroChatTransferManager: MoneroChatTransferManager?,
     viewModel: ChatViewModel
 ) {
-    val isCurrentUser = message.sender == currentUserNickname
     val colorScheme = MaterialTheme.colorScheme
 
     when {
-        // ---- FILE TRANSFER SIGNAL ----
         message.content.startsWith("[XMR_FILE_TRANSFER]") -> {
             LaunchedEffect(message.id) {
                 Log.d(TAG, "Monero file transfer signal from ${message.sender}")
-                // Just notify the user — actual file/tx handling is done via MoneroChatTransferManager callbacks
-                viewModel.addSystemMessage("📥 Incoming Monero transaction file from ${message.sender}")
+                viewModel.addSystemMessage("🔥 Incoming Monero transaction file from ${message.sender}")
             }
             return
         }
 
-        // ---- CONFIRMATION ----
         message.content.startsWith("[XMR_TX_CONFIRMED]") -> {
             LaunchedEffect(message.id) {
                 Log.d(TAG, "Received tx confirmation: ${message.content}")
@@ -142,62 +138,37 @@ fun MessageItem(
             }
             return
         }
-        // ---- ADDRESS SHARING ----
+
         message.content.startsWith("[MONERO_ADDRESS]") -> {
             LaunchedEffect(message.id) {
                 val address = message.content.removePrefix("[MONERO_ADDRESS]")
-                Log.d(TAG, "Received Monero address from ${message.sender}: $address")
-                viewModel.updatePeerMoneroAddress(message.sender, address)
-                viewModel.addSystemMessage("🏦 ${message.sender} shared their Monero address")
+                val peerKey = message.senderPeerID ?: message.sender
+                Log.d(TAG, "Received Monero address from $peerKey: $address")
+                viewModel.updatePeerMoneroAddress(peerKey, address)
+                viewModel.addSystemMessage("🦀 ${message.sender} shared their Monero address")
+            }
+            return
+        }
+
+        message.content.startsWith("[REQUEST_MONERO_ADDRESS]") -> {
+            LaunchedEffect(message.id) {
+                val requesterPeerID = message.senderPeerID ?: message.sender
+                Log.d(TAG, "Received Monero address request from: $requesterPeerID")
+                viewModel.addSystemMessage("📤 ${message.sender} requested your Monero address")
             }
             return
         }
     }
 
-    // Render normal chat message
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = { onNicknameClick?.invoke(message.sender) },
-                onLongClick = { onMessageLongPress?.invoke(message) }
-            ),
-        horizontalArrangement = if (isCurrentUser) Arrangement.End else Arrangement.Start
-    ) {
-        Column(modifier = Modifier.widthIn(max = 280.dp)) {
-            if (!isCurrentUser) {
-                Text(
-                    text = message.sender,
-                    fontSize = 12.sp,
-                    color = colorScheme.primary,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 2.dp)
-                )
-            }
-
-            Surface(
-                shape = MaterialTheme.shapes.medium,
-                color = if (isCurrentUser) colorScheme.primary else colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = message.content,
-                        color = if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
-                        fontSize = 14.sp
-                    )
-
-                    Text(
-                        text = formatTimestamp(message.timestamp?.time ?: 0L),
-                        fontSize = 10.sp,
-                        color = (if (isCurrentUser) colorScheme.onPrimary else colorScheme.onSurfaceVariant)
-                            .copy(alpha = 0.7f),
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            }
-        }
-    }
+    MessageTextWithClickableNicknames(
+        message = message,
+        currentUserNickname = currentUserNickname,
+        meshService = meshService,
+        colorScheme = colorScheme,
+        timeFormatter = SimpleDateFormat("HH:mm:ss", Locale.getDefault()),
+        onNicknameClick = onNicknameClick,
+        onMessageLongPress = onMessageLongPress
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -234,16 +205,17 @@ private fun MessageTextWithClickableNicknames(
                     onTap = { position ->
                         val layout = textLayoutResult ?: return@detectTapGestures
                         val offset = layout.getOffsetForPosition(position)
-                        val nicknameAnnotations = annotatedText.getStringAnnotations(
-                            tag = "nickname_click",
-                            start = offset,
-                            end = offset
-                        )
+                        val allAnnotations = annotatedText.getStringAnnotations(offset, offset)
+                        val nicknameAnnotations = allAnnotations.filter { annotation ->
+                            annotation.tag == "nickname_click"
+                        }
+                        
                         if (nicknameAnnotations.isNotEmpty()) {
                             val nickname = nicknameAnnotations.first().item
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             onNicknameClick?.invoke(nickname)
                         }
+
                     },
                     onLongPress = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -255,7 +227,7 @@ private fun MessageTextWithClickableNicknames(
             softWrap = true,
             overflow = TextOverflow.Visible,
             style = androidx.compose.ui.text.TextStyle(color = colorScheme.onSurface),
-            onTextLayout = { result -> textLayoutResult = result }
+            onTextLayout = { result: TextLayoutResult -> textLayoutResult = result }
         )
     } else {
         val haptic = LocalHapticFeedback.current
@@ -283,7 +255,7 @@ fun DeliveryStatusIcon(status: DeliveryStatus) {
     val colorScheme = MaterialTheme.colorScheme
     when (status) {
         is DeliveryStatus.Sending,
-        is DeliveryStatus.Sent -> Text("○", fontSize = 10.sp, color = colorScheme.primary.copy(alpha = 0.6f))
+        is DeliveryStatus.Sent -> Text("◯", fontSize = 10.sp, color = colorScheme.primary.copy(alpha = 0.6f))
         is DeliveryStatus.Delivered -> Text("✓", fontSize = 10.sp, color = colorScheme.primary.copy(alpha = 0.8f))
         is DeliveryStatus.Read -> Text("✓✓", fontSize = 10.sp, color = Color(0xFF007AFF), fontWeight = FontWeight.Bold)
         is DeliveryStatus.Failed -> Text("⚠", fontSize = 10.sp, color = Color.Red.copy(alpha = 0.8f))
@@ -320,4 +292,3 @@ private suspend fun handleTxConfirmed(
         viewModel.addSystemMessage("⚠️ Invalid Monero confirmation: ${e.message}")
     }
 }
-

@@ -33,7 +33,7 @@ public class WalletSuite {
     private static final String DEFAULT_WALLET_NAME = "bitchat_wallet";
     private static final String DEFAULT_WALLET_PASSWORD = "bitchat_secure_pass";
     private static final String DEFAULT_WALLET_LANGUAGE = "English";
-    private static final String DEFAULT_DAEMON_ADDRESS = "http://rpc_user:rpc_password@172.20.10.5";
+    private static final String DEFAULT_DAEMON_ADDRESS = "http://172.20.10.5";
     private static final int DEFAULT_DAEMON_PORT = 38081;
     private static final String DEFAULT_DAEMON_USERNAME = "rpc_user";
     private static final String DEFAULT_DAEMON_PASSWORD = "rpc_password";
@@ -180,18 +180,7 @@ public class WalletSuite {
         return (networkType == 1) ? "testnet" : (networkType == 2) ? "stagenet" : "mainnet";
     }
 
-    public void setDaemonConfig(String address, int port, String username, String password, int networkType) {
-        this.daemonAddress = address;
-        this.daemonPort = port;
-        this.daemonUsername = username;
-        this.daemonPassword = password;
-        this.networkType = networkType;
-    }
-
-    public void initializeWallet(int networkType) {
-        // Use provided networkType or fall back to configured value
-        int actualNetworkType = (networkType > 0) ? networkType : this.networkType;
-        
+    public void initializeWallet() {
         executorService.execute(() -> {
             try {
                 File dir = context.getDir("wallets", Context.MODE_PRIVATE);
@@ -224,18 +213,18 @@ public class WalletSuite {
                     backupFile(cacheFile);
                     backupFile(addrFile);
 
-                    Log.d(TAG, "Recreating wallet (networkType=" + actualNetworkType + ")");
-                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, actualNetworkType);
+                    Log.d(TAG, "Recreating wallet (networkType=" + networkType + ")");
+                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, networkType);
                 } else {
-                    Log.d(TAG, "Creating new wallet (networkType=" + actualNetworkType + ")");
-                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, actualNetworkType);
+                    Log.d(TAG, "Creating new wallet (networkType=" + networkType + ")");
+                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, networkType);
                 }
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
                     isInitialized = true;
-                    String networkName = (actualNetworkType == 1) ? "testnet"
-                                       : (actualNetworkType == 2) ? "stagenet"
+                    String networkName = (networkType == 1) ? "testnet"
+                                       : (networkType == 2) ? "stagenet"
                                        : "mainnet";
                     Log.i(TAG, "Wallet initialized successfully (" + networkName + ")");
                     notifyWalletInitialized(true, "Wallet initialized successfully (" + networkName + ")");
@@ -267,14 +256,14 @@ public class WalletSuite {
 
     public void initializeWalletFromSeed(String seedPhrase, long restoreHeight, int nettype) {
         // Use provided nettype or fall back to configured value
-        int actualNetworkType = (nettype > 0) ? nettype : this.networkType;
+        int networkType = (nettype > 0) ? nettype : this.networkType;
         
         executorService.execute(() -> {
             try {
                 String walletPath = getWalletPath();
 
                 WalletManager mgr = WalletManager.getInstance();
-                wallet = mgr.recoveryWallet(walletPath, walletPassword, seedPhrase, actualNetworkType, restoreHeight);
+                wallet = mgr.recoveryWallet(walletPath, walletPassword, seedPhrase, networkType, restoreHeight);
 
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
                     setupWallet();
@@ -527,12 +516,24 @@ public class WalletSuite {
     
     private void setupWallet() {
         if (wallet == null) return;
-        
+
         WalletManager mgr = WalletManager.getInstance();
 
-        boolean connected = mgr.setDaemonAddress(daemonAddress, daemonPort);
+        // Construct daemon URL with optional username/password
+        String url;
+        if (daemonUsername != null && !daemonUsername.isEmpty() &&
+            daemonPassword != null && !daemonPassword.isEmpty()) {
+            url = String.format("http://%s:%s@%s:%d",
+                    daemonUsername, daemonPassword, daemonAddress, daemonPort);
+        } else {
+            url = String.format("http://%s:%d", daemonAddress, daemonPort);
+        }
+
+        boolean connected = mgr.setDaemonAddress(url, daemonPort);
         if (!connected) {
-            Log.w(TAG, "Failed to connect to daemon");
+            Log.w(TAG, "Failed to connect to daemon at " + url);
+        } else {
+            Log.i(TAG, "Connected to daemon at " + url);
         }
 
         Log.d(TAG, "Wallet setup completed");
