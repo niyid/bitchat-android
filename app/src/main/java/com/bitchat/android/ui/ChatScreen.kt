@@ -107,7 +107,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
             override fun onWalletInitialized(success: Boolean, message: String) {
                 viewModel.updateWalletReadyState(success)
                 Log.d(TAG, "Wallet is being initialized")
-                if (success) {
+                if (!success) {
+                    Log.w(TAG, "Initial wallet init failed, retry loop will start")
+                    viewModel.updateWalletStatusMessage("Wallet failed: $message")
+                    viewModel.startDaemonRetryLoop(context)
+                }  else {               
                     viewModel.updateWalletStatusMessage("Wallet ready")
                     walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
                         override fun onSuccess(balance: Long, unlockedBalance: Long) {
@@ -130,8 +134,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             viewModel.updateWalletStatusMessage("Address error: $error")
                         }
                     })
-                } else {
-                    viewModel.updateWalletStatusMessage("Wallet failed: $message")
                 }
             }
 
@@ -179,13 +181,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
     // FIXED: Share wallet address only when private chat is initiated
     LaunchedEffect(selectedPrivatePeer, isWalletReady, myWalletAddress) {
         if (selectedPrivatePeer != null && isWalletReady && myWalletAddress != null) {
-            val peer = selectedPrivatePeer!!   // <-- FIX: capture in local variable
-            if (!peerMoneroAddresses.containsKey(peer)) {
+            val peer = selectedPrivatePeer!!
+            if (!peerMoneroAddresses.containsKey(peer) &&
+                !viewModel.moneroAddressSentTo.contains(peer)) {
                 Log.d(TAG, "Sharing wallet address with private chat peer: $peer")
                 viewModel.shareMoneroAddressWithPeer(peer, myWalletAddress!!)
             }
         }
     }
+
 
     // Show password dialog when needed
     LaunchedEffect(showPasswordPrompt) {
