@@ -33,7 +33,7 @@ public class WalletSuite {
     private static final String DEFAULT_WALLET_NAME = "bitchat_wallet";
     private static final String DEFAULT_WALLET_PASSWORD = "bitchat_secure_pass";
     private static final String DEFAULT_WALLET_LANGUAGE = "English";
-    private static final String DEFAULT_DAEMON_ADDRESS = "http://172.20.10.5";
+    private static final String DEFAULT_DAEMON_ADDRESS = "172.20.10.5";
     private static final int DEFAULT_DAEMON_PORT = 38081;
     private static final String DEFAULT_DAEMON_USERNAME = "rpc_user";
     private static final String DEFAULT_DAEMON_PASSWORD = "rpc_password";

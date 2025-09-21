@@ -120,6 +120,21 @@ class ChatViewModel(
     private val _peerMoneroAddresses = mutableStateOf(emptyMap<String, String>())
     val peerMoneroAddresses: Map<String, String> get() = _peerMoneroAddresses.value
     
+    // Track which peers we've sent our address to
+    private val _moneroAddressSentTo = mutableStateOf(emptySet<String>())
+    val moneroAddressSentTo: Set<String> get() = _moneroAddressSentTo.value
+
+    fun markAddressAsSent(peer: String) {
+        _moneroAddressSentTo.value = _moneroAddressSentTo.value + peer
+    }
+    
+    // Track daemon connection state
+    private var lastSyncHeight: Long = 0L
+    private var lastSyncAttemptTime: Long = 0L
+
+    // Track retry job
+    private var retryJob: kotlinx.coroutines.Job? = null
+    
     var walletSuite by mutableStateOf<WalletSuite?>(null) 
         private set
     var moneroMessageHandler by mutableStateOf(MoneroMessageHandler())
@@ -209,33 +224,97 @@ class ChatViewModel(
     }
 
     fun initializeWalletSuite(context: Context, listener: WalletSuite.WalletStatusListener) {
-        walletSuite = WalletSuite.getInstance(context).apply {
-            setWalletStatusListener(listener)
-            setTransactionListener(object : WalletSuite.TransactionListener {
-                override fun onTransactionCreated(txId: String, amount: Long) {
-                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
-                    addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
-                }
+        try {
+            walletSuite = WalletSuite.getInstance(context).apply {
+                setWalletStatusListener(listener)
+                setTransactionListener(object : WalletSuite.TransactionListener {
+                    override fun onTransactionCreated(txId: String, amount: Long) {
+                        val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                        addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
+                    }
 
-                override fun onTransactionConfirmed(txId: String) {
-                    updateTransactionStatus(txId, "confirmed")
-                    addSystemMessage("✅ Transaction confirmed: $txId")
-                }
+                    override fun onTransactionConfirmed(txId: String) {
+                        updateTransactionStatus(txId, "confirmed")
+                        addSystemMessage("✅ Transaction confirmed: $txId")
+                    }
 
-                override fun onTransactionFailed(txId: String, error: String) {
-                    updateTransactionStatus(txId, "failed")
-                    addSystemMessage("❌ Transaction failed: $txId - $error")
-                }
+                    override fun onTransactionFailed(txId: String, error: String) {
+                        updateTransactionStatus(txId, "failed")
+                        addSystemMessage("❌ Transaction failed: $txId - $error")
+                    }
 
-                override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
-                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
-                    val status = if (isConfirmed) "confirmed" else "pending"
-                    addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
-                }
-            })
-            initializeWallet()
+                    override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
+                        val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                        val status = if (isConfirmed) "confirmed" else "pending"
+                        addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
+                    }
+                })
+                initializeWallet()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Wallet initialization error: ${e.message}")
+            updateWalletStatusMessage("Wallet init error: ${e.message}")
+            updateWalletReadyState(false)
+
+            // Start retry loop after first failure
+            startDaemonRetryLoop(context)
         }
     }
+    
+    fun startDaemonRetryLoop(context: Context) {
+        // Cancel existing retry job if already running
+        retryJob?.cancel()
+
+        retryJob = viewModelScope.launch {
+            while (true) {
+                delay(5 * 60 * 1000) // Retry every 5 minutes
+                
+                // Skip retry if wallet is already ready
+                if (isWalletReady) continue
+
+                Log.w(TAG, "Retrying wallet initialization...")
+
+                try {
+                    initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
+                        override fun onWalletInitialized(success: Boolean, message: String) {
+                            if (success) {
+                                Log.i(TAG, "Wallet re-initialization succeeded.")
+                                updateWalletReadyState(true)
+                                updateWalletStatusMessage("Wallet connected successfully")
+                            } else {
+                                Log.e(TAG, "Wallet initialization failed on retry: $message")
+                                updateWalletReadyState(false)
+                                updateWalletStatusMessage("Retry failed: $message")
+                            }
+                        }
+
+                        override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
+                            updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+                        }
+
+                        override fun onSyncProgress(
+                            height: Long,
+                            startHeight: Long,
+                            targetHeight: Long,
+                            percentDone: Double
+                        ) {
+                            if (percentDone < 1.0) {
+                                updateSyncState(true, (percentDone * 100).toInt())
+                                lastSyncHeight = height
+                                updateWalletStatusMessage("Retry syncing: ${(percentDone * 100).toInt()}% ($height/$targetHeight)")
+                            } else {
+                                updateSyncState(false, 100)
+                                updateWalletStatusMessage("Wallet synchronized after retry")
+                            }
+                        }
+                    })
+                } catch (e: Exception) {
+                    Log.e(TAG, "Retry attempt failed: ${e.message}")
+                }
+            }
+        }
+    }
+    
 
     fun initializeMoneroMessageHandler(listener: MoneroMessageHandler.MoneroMessageListener) {
         moneroMessageHandler = MoneroMessageHandler().apply {
@@ -277,8 +356,13 @@ class ChatViewModel(
      * FIXED: Share Monero address with a specific peer during private chat initiation
      */
     fun shareMoneroAddressWithPeer(peerID: String, myWalletAddress: String) {
-        Log.d(TAG, "Sharing Monero address with peer: $peerID")
-        sendDirectMessage(peerID, "[MONERO_ADDRESS]$myWalletAddress")
+        if (!_moneroAddressSentTo.value.contains(peerID)) {
+            Log.d(TAG, "Sharing Monero address with peer: $peerID")
+            sendDirectMessage(peerID, "[MONERO_ADDRESS]$myWalletAddress")
+            markAddressAsSent(peerID)
+        } else {
+            Log.d(TAG, "Skipping duplicate Monero address send to $peerID")
+        }
     }
 
     override fun onCleared() {
