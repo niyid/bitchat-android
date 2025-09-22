@@ -3,91 +3,51 @@ package com.bitchat.android.monero.wallet;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.util.Log;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
+import com.m2049r.xmrwallet.data.Node;
+import com.m2049r.xmrwallet.model.PendingTransaction;
 import com.m2049r.xmrwallet.model.Wallet;
 import com.m2049r.xmrwallet.model.WalletListener;
 import com.m2049r.xmrwallet.model.WalletManager;
-import com.m2049r.xmrwallet.model.PendingTransaction;
 import com.m2049r.xmrwallet.util.Helper;
-import android.util.Base64;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+import java.util.concurrent.*;
 
 /**
- * Enhanced Monero wallet manager for BitChat using Monerujo library
- * Handles wallet creation, transactions, balance management, and Bluetooth/Chat blob workflows
- * Configuration is loaded from wallet.properties file      
+ * WalletSuite integrates Monerujo JNI bindings into BitChat.
+ * It handles wallet creation, restoration, syncing, daemon config, and transactions.
+ * Wallet configuration and JNI bindings are delegated to WalletManager.
  */
 public class WalletSuite {
-    private static final String TAG = "com.bitchat.WalletSuite";
+    private static final String TAG = "WalletSuite";
     private static final String PROPERTIES_FILE = "wallet.properties";
-    
-    // Default values (fallbacks)
-    private static final String DEFAULT_WALLET_NAME = "bitchat_wallet";
-    private static final String DEFAULT_WALLET_PASSWORD = "bitchat_secure_pass";
-    private static final String DEFAULT_WALLET_LANGUAGE = "English";
-    private static final String DEFAULT_DAEMON_ADDRESS = "172.20.10.5";
-    private static final int DEFAULT_DAEMON_PORT = 38081;
-    private static final String DEFAULT_DAEMON_USERNAME = "rpc_user";
-    private static final String DEFAULT_DAEMON_PASSWORD = "rpc_password";
-    private static final int DEFAULT_NETWORK_TYPE = 2; // stagenet
 
     private static volatile boolean nativeOk = false;
     private static volatile boolean nativeChecked = false;
     private static volatile WalletSuite instance;
 
-    // Configuration properties
-    private String walletName;
-    private String walletPassword;
-    private String walletLanguage;
-    private String daemonAddress;
-    private int daemonPort;
-    private String daemonUsername;
-    private String daemonPassword;
-    private int networkType;
-
-    private WalletSuite() {}
-
-    public static boolean nativeAvailable() {
-        if (!nativeChecked) {
-            synchronized (WalletSuite.class) {
-                if (!nativeChecked) {
-                    try {
-                        Log.i(TAG, "Attempting to load native library monerujo");
-                        System.loadLibrary("monerujo");
-                        nativeOk = true;
-                        Log.i(TAG, "Native library monerujo loaded successfully");
-                    } catch (UnsatisfiedLinkError e) {
-                        Log.w(TAG, "Failed to load native library monerujo", e);
-                        nativeOk = false;
-                    } catch (Exception e) {
-                        Log.e(TAG, "Unexpected error loading native library", e);
-                        nativeOk = false;
-                    }
-                    nativeChecked = true;
-                }
-            }
-        }
-        return nativeOk;
-    }
-
+    // Runtime fields
     private Wallet wallet;
-    private Context context;
-    private ExecutorService executorService;
-    private Handler mainHandler;
+    private final WalletManager walletManager;
+    private final Context context;
+    private final ExecutorService executorService;
+    private final Handler mainHandler;
     private boolean isInitialized = false;
     private boolean isSyncing = false;
 
+    // listeners
     private WalletStatusListener statusListener;
     private TransactionListener transactionListener;
 
+    // Interfaces
     public interface WalletStatusListener {
         void onWalletInitialized(boolean success, String message);
         void onBalanceUpdated(long balance, long unlockedBalance);
@@ -101,234 +61,9 @@ public class WalletSuite {
         void onOutputReceived(long amount, String txHash, boolean isConfirmed);
     }
 
-    private WalletSuite(Context context) {
-        this.context = context.getApplicationContext();
-        this.executorService = Executors.newSingleThreadExecutor();
-        this.mainHandler = new Handler(Looper.getMainLooper());
-        loadConfiguration();
-    }
-
-    public static synchronized WalletSuite getInstance(Context context) {
-        if (instance == null) {
-            instance = new WalletSuite(context);
-
-            if (!nativeAvailable()) {
-                Log.e(TAG, "Failed to load native library monerujo");
-            }
-        }
-        return instance;
-    }
-
-    private void loadConfiguration() {
-        Properties props = new Properties();
-        
-        // Try loading from external storage first (for easy updates)
-        File externalConfig = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
-        
-        // Try loading from internal assets (bundled with app)
-        File internalConfig = new File(context.getFilesDir(), PROPERTIES_FILE);
-        
-        boolean configLoaded = false;
-        
-        // Priority 1: External storage (user-modifiable)
-        if (externalConfig.exists()) {
-            try (FileInputStream fis = new FileInputStream(externalConfig)) {
-                props.load(fis);
-                configLoaded = true;
-                Log.i(TAG, "Loaded configuration from external storage: " + externalConfig.getAbsolutePath());
-            } catch (IOException e) {
-                Log.w(TAG, "Failed to load external config file", e);
-            }
-        }
-        
-        // Priority 2: Internal storage
-        if (!configLoaded && internalConfig.exists()) {
-            try (FileInputStream fis = new FileInputStream(internalConfig)) {
-                props.load(fis);
-                configLoaded = true;
-                Log.i(TAG, "Loaded configuration from internal storage: " + internalConfig.getAbsolutePath());
-            } catch (IOException e) {
-                Log.w(TAG, "Failed to load internal config file", e);
-            }
-        }
-        
-        // Priority 3: Assets folder (bundled with APK)
-        if (!configLoaded) {
-            try (InputStream is = context.getAssets().open(PROPERTIES_FILE)) {
-                props.load(is);
-                configLoaded = true;
-                Log.i(TAG, "Loaded configuration from assets");
-            } catch (IOException e) {
-                Log.w(TAG, "No config file found in assets, using defaults", e);
-            }
-        }
-        
-        // Load properties with fallback to defaults
-        walletName = props.getProperty("wallet.name", DEFAULT_WALLET_NAME);
-        walletPassword = props.getProperty("wallet.password", DEFAULT_WALLET_PASSWORD);
-        walletLanguage = props.getProperty("wallet.language", DEFAULT_WALLET_LANGUAGE);
-        daemonAddress = props.getProperty("daemon.address", DEFAULT_DAEMON_ADDRESS);
-        daemonPort = Integer.parseInt(props.getProperty("daemon.port", String.valueOf(DEFAULT_DAEMON_PORT)));
-        daemonUsername = props.getProperty("daemon.username", DEFAULT_DAEMON_USERNAME);
-        daemonPassword = props.getProperty("daemon.password", DEFAULT_DAEMON_PASSWORD);
-        networkType = Integer.parseInt(props.getProperty("network.type", String.valueOf(DEFAULT_NETWORK_TYPE)));
-        
-        Log.d(TAG, "Configuration loaded - Network: " + getNetworkName() + ", Daemon: " + daemonAddress + ":" + daemonPort);
-    }
-    
-    private String getNetworkName() {
-        return (networkType == 1) ? "testnet" : (networkType == 2) ? "stagenet" : "mainnet";
-    }
-
-    public void initializeWallet() {
-        executorService.execute(() -> {
-            try {
-                File dir = context.getDir("wallets", Context.MODE_PRIVATE);
-                if (!dir.exists() && !dir.mkdirs()) {
-                    Log.e(TAG, "Failed to create wallets directory: " + dir.getAbsolutePath());
-                    notifyWalletInitialized(false, "Failed to create wallets directory");
-                    return;
-                }
-
-                if (!dir.isDirectory() || !dir.canWrite()) {
-                    Log.e(TAG, "Wallet directory not writable: " + dir.getAbsolutePath());
-                    notifyWalletInitialized(false, "Wallet directory not writable");
-                    return;
-                }
-
-                String walletPath = new File(dir, walletName).getAbsolutePath();
-                Log.d(TAG, "Wallet path: " + walletPath);
-
-                File keysFile = new File(walletPath + ".keys");
-                File cacheFile = new File(walletPath);
-                File addrFile = new File(walletPath + ".address.txt");
-
-                WalletManager mgr = WalletManager.getInstance();
-
-                if (keysFile.exists() && cacheFile.exists()) {
-                    Log.d(TAG, "Opening existing wallet...");
-                    wallet = mgr.openWallet(walletPath, walletPassword, 1);
-                } else if (keysFile.exists() || cacheFile.exists() || addrFile.exists()) {
-                    backupFile(keysFile);
-                    backupFile(cacheFile);
-                    backupFile(addrFile);
-
-                    Log.d(TAG, "Recreating wallet (networkType=" + networkType + ")");
-                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, networkType);
-                } else {
-                    Log.d(TAG, "Creating new wallet (networkType=" + networkType + ")");
-                    wallet = mgr.createWallet(walletPath, walletPassword, walletLanguage, networkType);
-                }
-
-                if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
-                    setupWallet();
-                    isInitialized = true;
-                    String networkName = (networkType == 1) ? "testnet"
-                                       : (networkType == 2) ? "stagenet"
-                                       : "mainnet";
-                    Log.i(TAG, "Wallet initialized successfully (" + networkName + ")");
-                    notifyWalletInitialized(true, "Wallet initialized successfully (" + networkName + ")");
-                    startSync();
-                } else {
-                    String error = (wallet != null) ? wallet.getErrorString() : "Unknown JNI error";
-                    Log.e(TAG, "Wallet initialization failed: " + error);
-                    notifyWalletInitialized(false, "Failed to initialize wallet: " + error);
-                }
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error initializing wallet", e);
-                notifyWalletInitialized(false, "Error: " + e.getMessage());
-            }
-        });
-    }
-
-    private void backupFile(File file) {
-        if (file != null && file.exists()) {
-            String backupName = file.getAbsolutePath() + ".bak_" + System.currentTimeMillis();
-            boolean renamed = file.renameTo(new File(backupName));
-            if (renamed) {
-                Log.w(TAG, "Backed up " + file.getName() + " → " + backupName);
-            } else {
-                Log.e(TAG, "Failed to back up " + file.getName());
-            }
-        }
-    }
-
-    public void initializeWalletFromSeed(String seedPhrase, long restoreHeight, int nettype) {
-        // Use provided nettype or fall back to configured value
-        int networkType = (nettype > 0) ? nettype : this.networkType;
-        
-        executorService.execute(() -> {
-            try {
-                String walletPath = getWalletPath();
-
-                WalletManager mgr = WalletManager.getInstance();
-                wallet = mgr.recoveryWallet(walletPath, walletPassword, seedPhrase, networkType, restoreHeight);
-
-                if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
-                    setupWallet();
-                    isInitialized = true;
-                    notifyWalletInitialized(true, "Wallet restored from seed successfully");
-                    startSync();
-                } else {
-                    String error = wallet != null ? wallet.getErrorString() : "Unknown error";
-                    Log.e(TAG, "Wallet restore failed: " + error);
-                    notifyWalletInitialized(false, "Failed to restore wallet: " + error);
-                }
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error restoring wallet from seed", e);
-                notifyWalletInitialized(false, "Error: " + e.getMessage());
-            }
-        });
-    }
-
-    private String getWalletPath() {
-        File walletDir = new File(context.getFilesDir(), "monero");
-        if (!walletDir.exists()) {
-            walletDir.mkdirs();
-        }
-        return new File(walletDir, walletName).getAbsolutePath();
-    }
-
-    public void getAddress(AddressCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                String address = wallet.getAddress();
-                mainHandler.post(() -> callback.onSuccess(address));
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting address", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
-    }
-
     public interface AddressCallback {
         void onSuccess(String address);
         void onError(String error);
-    }
-
-    public void getBalance(BalanceCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                long balance = wallet.getBalance();
-                long unlockedBalance = wallet.getUnlockedBalance();
-                mainHandler.post(() -> callback.onSuccess(balance, unlockedBalance));
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting balance", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
     }
 
     public interface BalanceCallback {
@@ -336,144 +71,9 @@ public class WalletSuite {
         void onError(String error);
     }
 
-    private void updateBalance() {
-        if (!isInitialized || wallet == null) return;
-
-        executorService.execute(() -> {
-            try {
-                long balance = wallet.getBalance();
-                long unlockedBalance = wallet.getUnlockedBalance();
-                if (statusListener != null) {
-                    mainHandler.post(() -> statusListener.onBalanceUpdated(balance, unlockedBalance));
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error updating balance", e);
-            }
-        });
-    }
-
-    public void sendMonero(String toAddress, String amount, SendCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                long atomicAmount = Helper.getAmountFromString(amount);
-
-                PendingTransaction pendingTx = wallet.createTransaction(
-                        toAddress,
-                        "",
-                        atomicAmount,
-                        0,
-                        PendingTransaction.Priority.Priority_Default.ordinal()
-                );
-
-                if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
-                    String error = pendingTx.getErrorString();
-                    Log.e(TAG, "Transaction creation failed: " + error);
-                    mainHandler.post(() -> callback.onError("Transaction failed: " + error));
-                    return;
-                }
-
-                long fee = pendingTx.getFee();
-                String txId = pendingTx.getFirstTxId();
-
-                Log.d(TAG, "Transaction created: " + txId + ", Fee: " + Helper.getDisplayAmount(fee) + " XMR");
-
-                boolean committed = pendingTx.commit("", true);
-
-                if (committed) {
-                    if (transactionListener != null) {
-                        mainHandler.post(() -> transactionListener.onTransactionCreated(txId, atomicAmount));
-                    }
-                    mainHandler.post(() -> callback.onSuccess(txId, atomicAmount, fee));
-                } else {
-                    String error = "Failed to commit transaction";
-                    Log.e(TAG, error);
-                    mainHandler.post(() -> callback.onError(error));
-                }
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error sending Monero", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-                if (transactionListener != null) {
-                    mainHandler.post(() -> transactionListener.onTransactionFailed("", e.getMessage()));
-                }
-            }
-        });
-    }
-
     public interface SendCallback {
         void onSuccess(String txId, long amount, long fee);
         void onError(String error);
-    }
-
-    public void syncWallet(SyncCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                WalletListener syncListener = new WalletListener() {
-                    @Override
-                    public void moneySent(String txId, long amount) {}
-
-                    @Override
-                    public void moneyReceived(String txId, long amount) {
-                        if (transactionListener != null) {
-                            mainHandler.post(() -> transactionListener.onOutputReceived(amount, txId, true));
-                        }
-                        updateBalance();
-                    }
-
-                    @Override
-                    public void unconfirmedMoneyReceived(String txId, long amount) {
-                        if (transactionListener != null) {
-                            mainHandler.post(() -> transactionListener.onOutputReceived(amount, txId, false));
-                        }
-                    }
-
-                    @Override
-                    public void newBlock(long height) {
-                        if (statusListener != null) {
-                            long daemonHeight = wallet.getDaemonBlockChainHeight();
-                            double progress = daemonHeight > 0 ? (double) height / daemonHeight * 100.0 : 0.0;
-                            mainHandler.post(() -> statusListener.onSyncProgress(height, 0, daemonHeight, progress));
-                        }
-                    }
-
-                    @Override
-                    public void updated() {
-                        updateBalance();
-                    }
-
-                    @Override
-                    public void refreshed() {
-                        updateBalance();
-                    }
-                };
-
-                wallet.setListener(syncListener);
-
-                boolean synced = wallet.refresh();
-
-                if (synced) {
-                    mainHandler.post(() -> callback.onSuccess("Sync completed"));
-                } else {
-                    String error = wallet.getErrorString();
-                    Log.e(TAG, "Sync failed: " + error);
-                    mainHandler.post(() -> callback.onError("Sync failed: " + error));
-                }
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error syncing wallet", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
     }
 
     public interface SyncCallback {
@@ -481,172 +81,9 @@ public class WalletSuite {
         void onError(String error);
     }
 
-    private void startSync() {
-        if (wallet == null || isSyncing) return;
-
-        executorService.execute(() -> {
-            try {
-                isSyncing = true;
-                Log.d(TAG, "Synchronization initiated...");
-                syncWallet(new SyncCallback() {
-                    @Override
-                    public void onSuccess(String message) {
-                        Log.d(TAG, "Initial sync completed: " + message);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        Log.e(TAG, "Initial sync failed: " + error);
-                        isSyncing = false;
-                    }
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "Error starting sync", e);
-                isSyncing = false;
-            }
-        });
-    }
-
-    public void stopSync() {
-        if (wallet != null) {
-            isSyncing = false;
-            Log.d(TAG, "Sync stopped");
-        }
-    }
-    
-    private void setupWallet() {
-        if (wallet == null) return;
-
-        WalletManager mgr = WalletManager.getInstance();
-
-        // Construct daemon URL with optional username/password
-        String url;
-        if (daemonUsername != null && !daemonUsername.isEmpty() &&
-            daemonPassword != null && !daemonPassword.isEmpty()) {
-            url = String.format("http://%s:%s@%s:%d",
-                    daemonUsername, daemonPassword, daemonAddress, daemonPort);
-        } else {
-            url = String.format("http://%s:%d", daemonAddress, daemonPort);
-        }
-
-        boolean connected = mgr.setDaemonAddress(url, daemonPort);
-        if (!connected) {
-            Log.w(TAG, "Failed to connect to daemon at " + url);
-        } else {
-            Log.i(TAG, "Connected to daemon at " + url);
-        }
-
-        Log.d(TAG, "Wallet setup completed");
-    }
-    
-    public boolean isSyncing() {
-        return isSyncing && wallet != null;
-    }
-
-    public void saveWallet() {
-        if (wallet != null) {
-            executorService.execute(() -> {
-                try {
-                    boolean saved = wallet.store("");
-                    if (saved) {
-                        Log.d(TAG, "Wallet saved");
-                    } else {
-                        Log.e(TAG, "Failed to save wallet: " + wallet.getErrorString());
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Error saving wallet", e);
-                }
-            });
-        }
-    }
-
-    public void close() {
-        executorService.execute(() -> {
-            try {
-                if (wallet != null) {
-                    isSyncing = false;
-                    wallet.store("");
-                    wallet.close();
-                    wallet = null;
-                }
-                isInitialized = false;
-                Log.d(TAG, "Wallet closed and saved");
-            } catch (Exception e) {
-                Log.e(TAG, "Error closing wallet", e);
-            }
-        });
-
-        if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdown();
-            try {
-                if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-                    executorService.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                executorService.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
-    public void setWalletStatusListener(WalletStatusListener listener) {
-        this.statusListener = listener;
-    }
-
-    public void setTransactionListener(TransactionListener listener) {
-        this.transactionListener = listener;
-    }
-
-    private void notifyWalletInitialized(boolean success, String message) {
-        if (statusListener != null) {
-            mainHandler.post(() -> statusListener.onWalletInitialized(success, message));
-        }
-    }
-
-    public boolean isReady() {
-        return isInitialized && wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal();
-    }
-
-    public void getSeedPhrase(SeedCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                String seed = wallet.getSeed("");
-                mainHandler.post(() -> callback.onSuccess(seed));
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting seed", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
-    }
-
     public interface SeedCallback {
         void onSuccess(String seedPhrase);
         void onError(String error);
-    }
-
-    public void getSyncInfo(SyncInfoCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                long height = wallet.getBlockChainHeight();
-                long daemonHeight = wallet.getDaemonBlockChainHeight();
-                boolean isSynced = height >= daemonHeight;
-
-                mainHandler.post(() -> callback.onSuccess(height, daemonHeight, isSynced));
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting sync info", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
     }
 
     public interface SyncInfoCallback {
@@ -654,80 +91,9 @@ public class WalletSuite {
         void onError(String error);
     }
 
-    public static String convertAtomicToXmr(long atomic) {
-        return Helper.getDisplayAmount(atomic);
-    }
-
-    public static long convertXmrToAtomic(String xmr) {
-        return Helper.getAmountFromString(xmr);
-    }
-
-    public void getTransactionHistory(TransactionHistoryCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                wallet.refreshHistory();
-                mainHandler.post(() -> callback.onSuccess("Transaction history updated"));
-            } catch (Exception e) {
-                Log.e(TAG, "Error getting transaction history", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
-    }
-
     public interface TransactionHistoryCallback {
         void onSuccess(String message);
         void onError(String error);
-    }
-
-    // ==================== CHAT / BLUETOOTH TRANSACTION BLOB SUPPORT ====================
-
-    public void createTxBlob(String toAddress, String amount, TxBlobCallback callback) {
-        if (!isInitialized || wallet == null) {
-            callback.onError("Wallet not initialized");
-            return;
-        }
-
-        executorService.execute(() -> {
-            try {
-                long atomicAmount = Helper.getAmountFromString(amount);
-
-                Log.d(TAG, "Preparing to create transaction blob");
-
-                PendingTransaction pendingTx = wallet.createTransaction(
-                        toAddress,
-                        "",
-                        atomicAmount,
-                        0,
-                        PendingTransaction.Priority.Priority_Default.ordinal()
-                );
- 
-                Log.d(TAG, "Transaction created; now to extract the blob");
-
-                if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
-                    String error = pendingTx.getErrorString();
-                    Log.e(TAG, "Failed to create tx blob: " + error);
-                    mainHandler.post(() -> callback.onError(error));
-                    return;
-                }
-
-                byte[] rawBlob = pendingTx.getSerializedTransaction();
-                String base64Blob = Base64.encodeToString(rawBlob, Base64.NO_WRAP);
-                String txId = pendingTx.getFirstTxId();
-
-                Log.d(TAG, "Created TX blob: " + txId);
-
-                mainHandler.post(() -> callback.onSuccess(txId, base64Blob));
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error creating tx blob", e);
-                mainHandler.post(() -> callback.onError(e.getMessage()));
-            }
-        });
     }
 
     public interface TxBlobCallback {
@@ -735,103 +101,439 @@ public class WalletSuite {
         void onError(String error);
     }
 
-    public void submitTxBlob(byte[] blob, TxBlobCallback callback) {
-        if (!isInitialized || wallet == null) {
-            Log.e(TAG, "Wallet not initialized for submitTxBlob");
-            if (callback != null) {
-                callback.onError("Wallet not initialized");
+    // Constructor
+    private WalletSuite(Context context) {
+        this.context = context.getApplicationContext();
+        this.executorService = Executors.newSingleThreadExecutor();
+        this.mainHandler = new Handler(Looper.getMainLooper());
+        this.walletManager = WalletManager.getInstance();
+        loadConfiguration();
+    }
+
+    public static synchronized WalletSuite getInstance(Context context) {
+        if (instance == null) {
+            instance = new WalletSuite(context);
+            if (!nativeAvailable()) {
+                Log.e(TAG, "Failed to load native library monerujo");
             }
-            return;
         }
+        return instance;
+    }
+
+    public static synchronized void resetInstance(Context context) {
+        if (instance != null) {
+            try {
+                instance.close();
+            } catch (Exception ignored) {}
+            instance = null;
+        }
+        instance = new WalletSuite(context);
+    }
+
+    public void close() {
+        try {
+            if (wallet != null && isInitialized) {
+                wallet.close(true);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error closing wallet", e);
+        } finally {
+            wallet = null;
+            isInitialized = false;
+            isSyncing = false;
+        }
+
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(2, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException ie) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+  
+    private void startSync() {
+        if (wallet == null || isSyncing) return;
+
+        isSyncing = true;
+        wallet.setListener(new WalletListener() {
+            @Override
+            public void moneySent(String txId, long amount) {
+                if (transactionListener != null) {
+                    mainHandler.post(() ->
+                            transactionListener.onTransactionCreated(txId, amount));
+                }
+            }
+
+            @Override
+            public void moneyReceived(String txId, long amount) {
+                if (transactionListener != null) {
+                    mainHandler.post(() ->
+                            transactionListener.onOutputReceived(amount, txId, false));
+                }
+            }
+
+            @Override
+            public void unconfirmedMoneyReceived(String txId, long amount) {
+                if (transactionListener != null) {
+                    mainHandler.post(() ->
+                            transactionListener.onOutputReceived(amount, txId, false));
+                }
+            }
+
+            @Override
+            public void newBlock(long height) {
+                if (statusListener != null) {
+                    long walletHeight = wallet.getBlockChainHeight();
+                    long daemonHeight = walletManager.getBlockchainHeight();
+                    double percent = (daemonHeight > 0)
+                            ? (100.0 * walletHeight / daemonHeight)
+                            : 0.0;
+                    mainHandler.post(() ->
+                            statusListener.onSyncProgress(walletHeight, 0, daemonHeight, percent));
+                }
+            }
+
+            @Override
+            public void updated() {
+                if (statusListener != null) {
+                    long balance = wallet.getBalance();
+                    long unlocked = wallet.getUnlockedBalance();
+                    mainHandler.post(() ->
+                            statusListener.onBalanceUpdated(balance, unlocked));
+                }
+            }
+
+            @Override
+            public void refreshed() {
+                // Could be used for post-sync UI updates
+            }
+        });
+
+        // Start background refresh
+        wallet.refreshAsync();
+    }
+    
+
+    private static boolean nativeAvailable() {
+        if (!nativeChecked) {
+            synchronized (WalletSuite.class) {
+                if (!nativeChecked) {
+                    try {
+                        System.loadLibrary("monerujo");
+                        nativeOk = true;
+                    } catch (Throwable e) {
+                        nativeOk = false;
+                        Log.e(TAG, "Failed to load native library monerujo", e);
+                    }
+                    nativeChecked = true;
+                }
+            }
+        }
+        return nativeOk;
+    }
+
+    // Configuration loader
+    private void loadConfiguration() {
+        Properties props = new Properties();
+        boolean loaded = false;
+        File external = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
+        File internal = new File(context.getFilesDir(), PROPERTIES_FILE);
+
+        if (external.exists()) {
+            try (FileInputStream fis = new FileInputStream(external)) {
+                props.load(fis);
+                loaded = true;
+                Log.i(TAG, "Loaded config from external");
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to load external config", e);
+            }
+        }
+
+        if (!loaded && internal.exists()) {
+            try (FileInputStream fis = new FileInputStream(internal)) {
+                props.load(fis);
+                loaded = true;
+                Log.i(TAG, "Loaded config from internal");
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to load internal config", e);
+            }
+        }
+
+        if (!loaded) {
+            try (InputStream is = context.getAssets().open(PROPERTIES_FILE)) {
+                props.load(is);
+                loaded = true;
+                Log.i(TAG, "Loaded config from assets");
+            } catch (IOException e) {
+                Log.w(TAG, "No config found in assets; using defaults");
+            }
+        }
+
+        walletManager.applyConfiguration(props);
+    }
+
+    // Apply Node to WalletManager
+    public boolean setDaemonFromConfigAndApply() {
+        Node node = walletManager.createNodeFromConfig();
+        try {
+            walletManager.setDaemon(node);
+            Log.i(TAG, "Daemon set to " + node.toString());
+            return true;
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Failed to set daemon", e);
+            return false;
+        }
+    }
+
+    private void setupWallet() {
+        if (wallet == null) return;
+        setDaemonFromConfigAndApply();
+    }
+
+    // Wallet lifecycle
+    public Future<Boolean> initializeWallet() {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
 
         executorService.execute(() -> {
             try {
-                // Convert raw bytes to hex string for JNI
-                String txHex = bytesToHex(blob);
+                File dir = context.getDir("wallets", Context.MODE_PRIVATE);
+                if (!dir.exists() && !dir.mkdirs()) {
+                    notifyWalletInitialized(false, "Cannot create wallets dir");
+                    future.complete(false);
+                    return;
+                }
 
-                Log.d(TAG, "Submitting TX blob of length " + blob.length);
+                String walletPath = new File(dir, walletManager.getWalletName()).getAbsolutePath();
+                File keysFile = new File(walletPath + ".keys");
 
-                // JNI call expects hex string
-                String txId = wallet.submitTransaction(txHex);
+                if (keysFile.exists()) {
+                    Log.d(TAG, "Opening existing wallet at " + walletPath);
+                    wallet = walletManager.openWallet(walletPath);
+                } else {
+                    Log.d(TAG, "Creating new wallet at " + walletPath);
+                    wallet = walletManager.createWallet(walletPath);
+                }
 
-                if (callback != null) {
-                    // Still return base64 blob for consistency/logging
-                    String base64Blob = Base64.encodeToString(blob, Base64.NO_WRAP);
-                    mainHandler.post(() -> callback.onSuccess(txId, base64Blob));
+                if (wallet == null) {
+                    notifyWalletInitialized(false, "JNI returned null wallet");
+                    future.complete(false);
+                    return;
+                }
+
+                int status = wallet.getStatus();
+                String errorStr = wallet.getErrorString();
+                if (errorStr == null) errorStr = "<empty>";
+
+                Log.d(TAG, "Wallet status: " + status + " (" + Wallet.Status.values()[status] + ")");
+                Log.d(TAG, "Wallet error string: " + errorStr);
+
+                // Try to dump wallet metadata if possible
+                try {
+                    Log.d(TAG, "Wallet address: " + wallet.getAddress());
+                    Log.d(TAG, "Wallet seed language: " + wallet.getSeedLanguage());
+                    Log.d(TAG, "Wallet restore height: " + wallet.getRestoreHeight());
+                    Log.d(TAG, "Wallet blockchain height: " + wallet.getBlockChainHeight());
+                    Log.d(TAG, "Daemon: " + walletManager.getDaemonAddress() + ":" + walletManager.getDaemonPort());
+                    Log.d(TAG, "Network type: " + walletManager.getNetworkType());
+                } catch (Exception e) {
+                    Log.w(TAG, "Unable to fetch wallet metadata: " + e.getMessage());
+                }
+
+                if (status == Wallet.Status.Status_Ok.ordinal()) {
+                    setupWallet();
+                    isInitialized = true;
+                    notifyWalletInitialized(true, "Wallet initialized");
+                    startSync();
+                    future.complete(true);
+                    return;
+                }
+
+                // Handle non-OK status
+                notifyWalletInitialized(false,
+                        "Init failed: status=" + status + " err=" + errorStr);
+
+                // If CRITICAL, nuke the wallet and try again
+                if (status == Wallet.Status.Status_Critical.ordinal()) {
+                    Log.w(TAG, "Wallet status is CRITICAL. Deleting wallet files for path " + walletPath);
+
+                    safeDelete(new File(walletPath));
+                    safeDelete(new File(walletPath + ".keys"));
+                    safeDelete(new File(walletPath + ".address.txt"));
+
+                    wallet = walletManager.createWallet(walletPath);
+                    if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
+                        setupWallet();
+                        isInitialized = true;
+                        notifyWalletInitialized(true, "Wallet recreated successfully");
+                        startSync();
+                        future.complete(true);
+                        return;
+                    } else {
+                        Log.e(TAG, "Wallet recreation also failed");
+                    }
+                }
+
+                future.complete(false);
+
+            } catch (Exception e) {
+                Log.e(TAG, "Exception during wallet init", e);
+                notifyWalletInitialized(false, "Error: " + e.getMessage());
+                future.completeExceptionally(e);
+            }
+        });
+
+        return future;
+    }
+
+    // Helper: safe file deletion
+    private void safeDelete(File f) {
+        try {
+            if (f.exists() && !f.delete()) {
+                Log.w(TAG, "Could not delete " + f.getAbsolutePath());
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error deleting " + f.getAbsolutePath() + ": " + e.getMessage());
+        }
+    }
+
+    public void initializeWalletFromSeed(String seed, long restoreHeight, int requestedNetType) {
+        int netType = (requestedNetType >= 0) ? requestedNetType : walletManager.getNetworkType().ordinal();
+        executorService.execute(() -> {
+            try {
+                String walletPath = getWalletPath();
+                wallet = walletManager.recoveryWallet(walletPath, seed, restoreHeight);
+                if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
+                    setupWallet();
+                    isInitialized = true;
+                    notifyWalletInitialized(true, "Wallet restored");
+                    startSync();
+                } else {
+                    String error = (wallet != null) ? wallet.getErrorString() : "JNI error";
+                    notifyWalletInitialized(false, "Restore failed: " + error);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Error submitting tx blob", e);
-                if (callback != null) {
-                    final String errorMsg = e.getMessage(); // make it effectively final
-                    mainHandler.post(() -> callback.onError(errorMsg));
-                }
+                notifyWalletInitialized(false, "Error: " + e.getMessage());
             }
         });
     }
 
-    private static String bytesToHex(byte[] bytes) {
-        StringBuilder sb = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) {
-            sb.append(String.format("%02x", b & 0xff));
-        }
+    private String getWalletPath() {
+        File walletDir = new File(context.getFilesDir(), "monero");
+        if (!walletDir.exists()) walletDir.mkdirs();
+        return new File(walletDir, walletManager.getWalletName()).getAbsolutePath();
+    }
+
+    // === Public wallet ops ===
+
+    public void getAddress(AddressCallback cb) {
+        if (!isInitialized || wallet == null) { cb.onError("Wallet not ready"); return; }
+        executorService.execute(() -> {
+            try { String a = wallet.getAddress(); mainHandler.post(() -> cb.onSuccess(a)); }
+            catch (Exception e) { mainHandler.post(() -> cb.onError(e.getMessage())); }
+        });
+    }
+
+    public void getBalance(BalanceCallback cb) {
+        if (!isInitialized || wallet == null) { cb.onError("Wallet not ready"); return; }
+        executorService.execute(() -> {
+            try {
+                long bal = wallet.getBalance();
+                long ubal = wallet.getUnlockedBalance();
+                mainHandler.post(() -> cb.onSuccess(bal, ubal));
+            } catch (Exception e) {
+                mainHandler.post(() -> cb.onError(e.getMessage()));
+            }
+        });
+    }
+
+    public static String convertAtomicToXmr(long atomicAmount) {
+        double xmr = atomicAmount / 1e12d;
+        return String.format("%.12f", xmr).replaceAll("0+$", "").replaceAll("\\.$", "");
+    }
+
+    public void createTxBlob(String to, String amount, TxBlobCallback cb) {
+        if (!isInitialized || wallet == null) { cb.onError("Wallet not ready"); return; }
+        executorService.execute(() -> {
+            try {
+                long atomic = Helper.getAmountFromString(amount);
+                PendingTransaction tx = wallet.createTransaction(to, "", atomic, 0, PendingTransaction.Priority.Priority_Default.ordinal());
+                if (tx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
+                    mainHandler.post(() -> cb.onError(tx.getErrorString()));
+                    return;
+                }
+                byte[] raw = tx.getSerializedTransaction();
+                String b64 = Base64.encodeToString(raw, Base64.NO_WRAP);
+                mainHandler.post(() -> cb.onSuccess(tx.getFirstTxId(), b64));
+            } catch (Exception e) {
+                mainHandler.post(() -> cb.onError(e.getMessage()));
+            }
+        });
+    }
+
+    public void submitTxBlob(byte[] blob, TxBlobCallback cb) {
+        if (!isInitialized || wallet == null) { cb.onError("Wallet not ready"); return; }
+        executorService.execute(() -> {
+            try {
+                String hex = bytesToHex(blob);
+                String txId = wallet.submitTransaction(hex);
+                String b64 = Base64.encodeToString(blob, Base64.NO_WRAP);
+                mainHandler.post(() -> cb.onSuccess(txId, b64));
+            } catch (Exception e) {
+                mainHandler.post(() -> cb.onError(e.getMessage()));
+            }
+        });
+    }
+
+    private static String bytesToHex(byte[] b) {
+        StringBuilder sb = new StringBuilder(b.length * 2);
+        for (byte x : b) sb.append(String.format("%02x", x & 0xff));
         return sb.toString();
     }
 
-    // ==================== CONFIGURATION UTILITIES ====================
+    // Config utils
+    public void reloadConfiguration() {
+        loadConfiguration();
+        Log.i(TAG, "Config reloaded from: " + getCurrentConfigPath());
+        if (wallet != null) setDaemonFromConfigAndApply();
+    }
 
-    /**
-     * Copy the default configuration from assets to external storage
-     * This allows users to modify the configuration file
-     */
-    public static void copyDefaultConfigToExternalStorage(Context context) {
+    public static void copyDefaultConfigToExternalStorage(Context ctx) {
         try {
-            File externalConfig = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
-            if (externalConfig.exists()) {
-                Log.i(TAG, "Configuration file already exists in external storage");
-                return;
+            File dest = new File(ctx.getExternalFilesDir(null), PROPERTIES_FILE);
+            if (dest.exists()) { Log.i(TAG, "Config already exists: " + dest.getAbsolutePath()); return; }
+            try (InputStream is = ctx.getAssets().open(PROPERTIES_FILE);
+                 FileOutputStream os = new FileOutputStream(dest)) {
+                byte[] buf = new byte[1024];
+                int r;
+                while ((r = is.read(buf)) > 0) os.write(buf, 0, r);
             }
-
-            InputStream inputStream = context.getAssets().open(PROPERTIES_FILE);
-            java.io.FileOutputStream outputStream = new java.io.FileOutputStream(externalConfig);
-
-            byte[] buffer = new byte[1024];
-            int length;
-            while ((length = inputStream.read(buffer)) > 0) {
-                outputStream.write(buffer, 0, length);
-            }
-
-            outputStream.close();
-            inputStream.close();
-
-            Log.i(TAG, "Default configuration copied to: " + externalConfig.getAbsolutePath());
+            Log.i(TAG, "Copied default config to " + dest.getAbsolutePath());
         } catch (IOException e) {
-            Log.e(TAG, "Failed to copy default configuration", e);
+            Log.e(TAG, "Failed to copy default config", e);
         }
     }
 
-    /**
-     * Get the current configuration file path being used
-     */
     public String getCurrentConfigPath() {
-        File externalConfig = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
-        if (externalConfig.exists()) {
-            return externalConfig.getAbsolutePath();
-        }
-        
-        File internalConfig = new File(context.getFilesDir(), PROPERTIES_FILE);
-        if (internalConfig.exists()) {
-            return internalConfig.getAbsolutePath();
-        }
-        
+        File external = new File(context.getExternalFilesDir(null), PROPERTIES_FILE);
+        if (external.exists()) return external.getAbsolutePath();
+        File internal = new File(context.getFilesDir(), PROPERTIES_FILE);
+        if (internal.exists()) return internal.getAbsolutePath();
         return "assets/" + PROPERTIES_FILE;
     }
 
-    /**
-     * Reload configuration from file
-     * Useful after user modifies the configuration file
-     */
-    public void reloadConfiguration() {
-        loadConfiguration();
-        Log.i(TAG, "Configuration reloaded from: " + getCurrentConfigPath());
+    // Listeners
+    public void setWalletStatusListener(WalletStatusListener l) { this.statusListener = l; }
+    public void setTransactionListener(TransactionListener l) { this.transactionListener = l; }
+
+    private void notifyWalletInitialized(boolean ok, String msg) {
+        if (statusListener != null) mainHandler.post(() -> statusListener.onWalletInitialized(ok, msg));
+    }
+
+    public boolean isReady() {
+        return isInitialized && wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal();
     }
 }
+

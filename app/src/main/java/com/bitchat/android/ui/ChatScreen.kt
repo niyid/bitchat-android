@@ -106,25 +106,27 @@ fun ChatScreen(viewModel: ChatViewModel) {
         viewModel.initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
             override fun onWalletInitialized(success: Boolean, message: String) {
                 viewModel.updateWalletReadyState(success)
-                Log.d(TAG, "Wallet is being initialized")
+                Log.d(TAG, "Wallet init result: $message")
+
                 if (!success) {
                     Log.w(TAG, "Initial wallet init failed, retry loop will start")
                     viewModel.updateWalletStatusMessage("Wallet failed: $message")
-                    viewModel.startDaemonRetryLoop(context)
-                }  else {               
+                    // Uses WalletSuite reload mechanism instead of manual retry
+                    viewModel.startDaemonRetryLoop(context) 
+                } else {
                     viewModel.updateWalletStatusMessage("Wallet ready")
+
                     walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
                         override fun onSuccess(balance: Long, unlockedBalance: Long) {
-                            Log.d(TAG, "Wallet successfully initialized")
+                            Log.d(TAG, "Balance loaded after init")
                             viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
                         }
                         override fun onError(error: String) {
-                            Log.d(TAG, "Wallet initialization failed")
                             viewModel.updateWalletStatusMessage("Balance error: $error")
                         }
                     })
-                    
-                    // Get wallet address and store it locally - NO AUTO-SHARING
+
+                    // Get wallet address and store locally - NO AUTO-SHARING
                     walletSuite?.getAddress(object : WalletSuite.AddressCallback {
                         override fun onSuccess(address: String) {
                             myWalletAddress = address
@@ -141,12 +143,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
             }
 
-            override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
-                val syncing = percentDone < 1.0
-                val progress = (percentDone * 100).toInt()
-                
+            override fun onSyncProgress(
+                height: Long,
+                startHeight: Long,
+                targetHeight: Long,
+                percentDone: Double
+            ) {
+                val syncing = percentDone < 100.0
+                val progress = percentDone.toInt()
+
                 viewModel.updateSyncState(syncing, progress)
-                
+
                 if (syncing) {
                     viewModel.updateWalletStatusMessage("Syncing: $progress% ($height/$targetHeight)")
                 } else {
@@ -167,8 +174,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
 
             override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
-                val requestMessage = "💳 ${request.fromUser} requested ${request.amount} XMR" +
-                    if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
+                val reason = if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
+                val requestMessage = "💳 ${request.fromUser} requested ${request.amount} XMR$reason"
                 viewModel.addSystemMessage(requestMessage)
             }
 

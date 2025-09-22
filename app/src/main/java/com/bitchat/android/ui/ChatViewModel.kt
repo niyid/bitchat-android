@@ -20,6 +20,10 @@ import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
 
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
+
 import java.util.*
 import kotlin.random.Random
 
@@ -225,7 +229,10 @@ class ChatViewModel(
 
     fun initializeWalletSuite(context: Context, listener: WalletSuite.WalletStatusListener) {
         try {
-            walletSuite = WalletSuite.getInstance(context).apply {
+            // Always reload configuration before initialization
+            val suite = WalletSuite.getInstance(context).apply {
+                reloadConfiguration() // ensures latest daemon config applied
+
                 setWalletStatusListener(listener)
                 setTransactionListener(object : WalletSuite.TransactionListener {
                     override fun onTransactionCreated(txId: String, amount: Long) {
@@ -249,32 +256,67 @@ class ChatViewModel(
                         addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
                     }
                 })
-                initializeWallet()
             }
+
+            // Run init on background (non-blocking)
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val success = suite.initializeWallet().get() // wait for Future result
+                    withContext(Dispatchers.Main) {
+                        if (success) {
+                            updateWalletReadyState(true)
+                            updateWalletStatusMessage("Wallet initialized successfully")
+                        } else {
+                            updateWalletReadyState(false)
+                            updateWalletStatusMessage("Wallet initialization failed")
+                            // Reset and retry
+                            WalletSuite.resetInstance(context)
+                            startDaemonRetryLoop(context)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Wallet init future failed: ${e.message}")
+                    withContext(Dispatchers.Main) {
+                        updateWalletStatusMessage("Wallet init error: ${e.message}")
+                        updateWalletReadyState(false)
+                        WalletSuite.resetInstance(context)
+                        startDaemonRetryLoop(context)
+                    }
+                }
+            }
+
+            walletSuite = suite
         } catch (e: Exception) {
             Log.e(TAG, "Wallet initialization error: ${e.message}")
             updateWalletStatusMessage("Wallet init error: ${e.message}")
             updateWalletReadyState(false)
 
-            // Start retry loop after first failure
+            // Reset WalletSuite to avoid stale state before retry loop
+            WalletSuite.resetInstance(context)
+
+            // Trigger retry loop
             startDaemonRetryLoop(context)
         }
     }
-    
+
     fun startDaemonRetryLoop(context: Context) {
-        // Cancel existing retry job if already running
+        // Cancel any existing loop
         retryJob?.cancel()
 
         retryJob = viewModelScope.launch {
-            while (true) {
+            while (isActive) {
                 delay(5 * 60 * 1000) // Retry every 5 minutes
-                
-                // Skip retry if wallet is already ready
+
+                // Skip if already ready
                 if (isWalletReady) continue
 
                 Log.w(TAG, "Retrying wallet initialization...")
 
                 try {
+                    // Reload config & reapply daemon before retry
+                    val suite = WalletSuite.getInstance(context)
+                    suite.reloadConfiguration()
+
                     initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
                         override fun onWalletInitialized(success: Boolean, message: String) {
                             if (success) {
@@ -298,12 +340,15 @@ class ChatViewModel(
                             targetHeight: Long,
                             percentDone: Double
                         ) {
-                            if (percentDone < 1.0) {
-                                updateSyncState(true, (percentDone * 100).toInt())
+                            val syncing = percentDone < 100.0
+                            val progress = percentDone.toInt()
+
+                            updateSyncState(syncing, progress)
+
+                            if (syncing) {
                                 lastSyncHeight = height
-                                updateWalletStatusMessage("Retry syncing: ${(percentDone * 100).toInt()}% ($height/$targetHeight)")
+                                updateWalletStatusMessage("Retry syncing: $progress% ($height/$targetHeight)")
                             } else {
-                                updateSyncState(false, 100)
                                 updateWalletStatusMessage("Wallet synchronized after retry")
                             }
                         }
@@ -314,7 +359,7 @@ class ChatViewModel(
             }
         }
     }
-    
+
 
     fun initializeMoneroMessageHandler(listener: MoneroMessageHandler.MoneroMessageListener) {
         moneroMessageHandler = MoneroMessageHandler().apply {

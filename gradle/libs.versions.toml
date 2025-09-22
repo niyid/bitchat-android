@@ -5,6 +5,7 @@ kotlin = "2.2.0"
 compileSdk = "35"
 minSdk = "26" # API 26 for proper BLE support
 targetSdk = "35"
+guava-android = "33.4.1-android"
 
 # AndroidX Core
 core-ktx = "1.16.0"
@@ -95,6 +96,9 @@ google-tink-android = { module = "com.google.crypto.tink:tink-android", version.
 
 # JSON
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+
+# Guava (Android-optimized build)
+guava = { module = "com.google.guava:guava", version = "33.4.1-android" }
 
 # Coroutines
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinx-coroutines" }
