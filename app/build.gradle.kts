@@ -132,6 +132,9 @@ dependencies {
     // JSON
     implementation(libs.gson)
     
+    //Guava
+    implementation(libs.guava)
+    
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
     
