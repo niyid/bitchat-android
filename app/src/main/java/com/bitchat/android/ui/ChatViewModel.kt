@@ -74,6 +74,9 @@ class ChatViewModel(
         getMeshService = { meshService }
     )
     
+    var myWalletAddress by mutableStateOf<String?>(null)
+    private set
+    
     // Nostr and Geohash service - initialize singleton
     private val nostrGeohashService = NostrGeohashService.initialize(
         application = application,
@@ -85,6 +88,12 @@ class ChatViewModel(
         dataManager = dataManager,
         notificationManager = notificationManager
     )
+    
+    fun updateMyWalletAddress(address: String) {
+        myWalletAddress = address
+        Log.d(TAG, "Wallet address updated: $address")
+        // DO NOT auto-share here - sharing only happens when private chat is initiated
+    }    
     
     // Expose state through LiveData (maintaining the same interface)
     val messages: LiveData<List<BitchatMessage>> = state.messages
@@ -229,27 +238,22 @@ class ChatViewModel(
 
     fun initializeWalletSuite(context: Context, listener: WalletSuite.WalletStatusListener) {
         try {
-            // Always reload configuration before initialization
             val suite = WalletSuite.getInstance(context).apply {
                 reloadConfiguration() // ensures latest daemon config applied
-
                 setWalletStatusListener(listener)
                 setTransactionListener(object : WalletSuite.TransactionListener {
                     override fun onTransactionCreated(txId: String, amount: Long) {
                         val amountXmr = WalletSuite.convertAtomicToXmr(amount)
                         addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
                     }
-
                     override fun onTransactionConfirmed(txId: String) {
                         updateTransactionStatus(txId, "confirmed")
                         addSystemMessage("✅ Transaction confirmed: $txId")
                     }
-
                     override fun onTransactionFailed(txId: String, error: String) {
                         updateTransactionStatus(txId, "failed")
                         addSystemMessage("❌ Transaction failed: $txId - $error")
                     }
-
                     override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
                         val amountXmr = WalletSuite.convertAtomicToXmr(amount)
                         val status = if (isConfirmed) "confirmed" else "pending"
@@ -258,7 +262,9 @@ class ChatViewModel(
                 })
             }
 
-            // Run init on background (non-blocking)
+            walletSuite = suite
+
+            // Delegate initialization entirely to WalletSuite
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val success = suite.initializeWallet().get() // wait for Future result
@@ -266,12 +272,28 @@ class ChatViewModel(
                         if (success) {
                             updateWalletReadyState(true)
                             updateWalletStatusMessage("Wallet initialized successfully")
+                            
+                            // Get the wallet address from the cached state
+                            val address = suite.getCachedAddress()
+                            if (address != null) {
+                                Log.d(TAG, "Got wallet address from cached state: $address")
+                                updateMyWalletAddress(address)
+                            } else {
+                                // Fallback: request address if not cached
+                                suite.getAddress(object : WalletSuite.AddressCallback {
+                                    override fun onSuccess(address: String) {
+                                        Log.d(TAG, "Got wallet address via fallback: $address")
+                                        updateMyWalletAddress(address)
+                                    }
+                                    override fun onError(error: String) {
+                                        Log.e(TAG, "Failed to get address via fallback: $error")
+                                    }
+                                })
+                            }
                         } else {
                             updateWalletReadyState(false)
                             updateWalletStatusMessage("Wallet initialization failed")
-                            // Reset and retry
-                            WalletSuite.resetInstance(context)
-                            startDaemonRetryLoop(context)
+                            // Don't start retry loop - WalletSuite handles its own retry logic
                         }
                     }
                 } catch (e: Exception) {
@@ -279,61 +301,73 @@ class ChatViewModel(
                     withContext(Dispatchers.Main) {
                         updateWalletStatusMessage("Wallet init error: ${e.message}")
                         updateWalletReadyState(false)
-                        WalletSuite.resetInstance(context)
-                        startDaemonRetryLoop(context)
                     }
                 }
             }
-
-            walletSuite = suite
         } catch (e: Exception) {
             Log.e(TAG, "Wallet initialization error: ${e.message}")
             updateWalletStatusMessage("Wallet init error: ${e.message}")
             updateWalletReadyState(false)
-
-            // Reset WalletSuite to avoid stale state before retry loop
-            WalletSuite.resetInstance(context)
-
-            // Trigger retry loop
-            startDaemonRetryLoop(context)
         }
     }
 
     fun startDaemonRetryLoop(context: Context) {
         // Cancel any existing loop
         retryJob?.cancel()
-
         retryJob = viewModelScope.launch {
             while (isActive) {
                 delay(5 * 60 * 1000) // Retry every 5 minutes
-
                 // Skip if already ready
                 if (isWalletReady) continue
-
                 Log.w(TAG, "Retrying wallet initialization...")
-
                 try {
                     // Reload config & reapply daemon before retry
                     val suite = WalletSuite.getInstance(context)
                     suite.reloadConfiguration()
-
                     initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
                         override fun onWalletInitialized(success: Boolean, message: String) {
                             if (success) {
                                 Log.i(TAG, "Wallet re-initialization succeeded.")
                                 updateWalletReadyState(true)
                                 updateWalletStatusMessage("Wallet connected successfully")
+                                
+                                // Get address after successful retry with proper delay
+                                viewModelScope.launch {
+                                    delay(1000) // Give wallet time to be fully ready
+                                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                                        override fun onSuccess(address: String) {
+                                            updateMyWalletAddress(address)
+                                            Log.d(TAG, "Got address on retry: ${address.take(10)}...")
+                                        }
+                                        override fun onError(error: String) {
+                                            updateWalletStatusMessage("Address error on retry: $error")
+                                            Log.e(TAG, "Address error on retry: $error")
+                                            
+                                            // Try one more time after another delay
+                                            viewModelScope.launch {
+                                                delay(2000)
+                                                walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                                                    override fun onSuccess(address: String) {
+                                                        updateMyWalletAddress(address)
+                                                        Log.d(TAG, "Got address on second retry: ${address.take(10)}...")
+                                                    }
+                                                    override fun onError(error: String) {
+                                                        Log.e(TAG, "Address error on second retry: $error")
+                                                    }
+                                                })
+                                            }
+                                        }
+                                    })
+                                }
                             } else {
                                 Log.e(TAG, "Wallet initialization failed on retry: $message")
                                 updateWalletReadyState(false)
                                 updateWalletStatusMessage("Retry failed: $message")
                             }
                         }
-
                         override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
                             updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
                         }
-
                         override fun onSyncProgress(
                             height: Long,
                             startHeight: Long,
@@ -342,14 +376,28 @@ class ChatViewModel(
                         ) {
                             val syncing = percentDone < 100.0
                             val progress = percentDone.toInt()
-
                             updateSyncState(syncing, progress)
-
                             if (syncing) {
                                 lastSyncHeight = height
                                 updateWalletStatusMessage("Retry syncing: $progress% ($height/$targetHeight)")
                             } else {
                                 updateWalletStatusMessage("Wallet synchronized after retry")
+                                
+                                // Get address after sync completes if still null
+                                if (myWalletAddress == null) {
+                                    viewModelScope.launch {
+                                        delay(500)
+                                        walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                                            override fun onSuccess(address: String) {
+                                                updateMyWalletAddress(address)
+                                                Log.d(TAG, "Got address post-retry-sync: ${address.take(10)}...")
+                                            }
+                                            override fun onError(error: String) {
+                                                Log.e(TAG, "Address error post-retry-sync: $error")
+                                            }
+                                        })
+                                    }
+                                }
                             }
                         }
                     })
@@ -359,7 +407,6 @@ class ChatViewModel(
             }
         }
     }
-
 
     fun initializeMoneroMessageHandler(listener: MoneroMessageHandler.MoneroMessageListener) {
         moneroMessageHandler = MoneroMessageHandler().apply {
@@ -401,10 +448,17 @@ class ChatViewModel(
      * FIXED: Share Monero address with a specific peer during private chat initiation
      */
     fun shareMoneroAddressWithPeer(peerID: String, myWalletAddress: String) {
+        Log.d(TAG, "shareMoneroAddressWithPeer called: peerID=$peerID, address=${myWalletAddress.take(10)}...")
+        
         if (!_moneroAddressSentTo.value.contains(peerID)) {
-            Log.d(TAG, "Sharing Monero address with peer: $peerID")
-            sendDirectMessage(peerID, "[MONERO_ADDRESS]$myWalletAddress")
-            markAddressAsSent(peerID)
+            Log.d(TAG, "Actually sending Monero address to peer: $peerID")
+            try {
+                sendDirectMessage(peerID, "[MONERO_ADDRESS]$myWalletAddress")
+                markAddressAsSent(peerID)
+                Log.d(TAG, "Monero address sent successfully to $peerID")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send Monero address to $peerID: ${e.message}")
+            }
         } else {
             Log.d(TAG, "Skipping duplicate Monero address send to $peerID")
         }
@@ -732,11 +786,18 @@ class ChatViewModel(
     
     // FIXED: Message handling to use correct peer identification and reciprocal address sharing
     override fun didReceiveMessage(message: BitchatMessage) {
+        Log.d(TAG, "didReceiveMessage triggered with message: ${message.content}")
+
         // Detect if this is a Monero address broadcast
         if (message.content.startsWith("[MONERO_ADDRESS]")) {
             val address = message.content.removePrefix("[MONERO_ADDRESS]")
             // FIXED: Use consistent key for storing address - prefer senderPeerID over sender nickname
-            val peerKey = message.senderPeerID ?: message.sender
+            val peerKey = message.senderPeerID ?: run {
+                // Fall back to lookup nickname → peerID mapping
+                meshService.getPeerNicknames().entries
+                    .find { it.value == message.sender }
+                    ?.key ?: message.sender
+            }
             updatePeerMoneroAddress(peerKey, address)
             Log.d(TAG, "Received Monero address from $peerKey: $address")
             

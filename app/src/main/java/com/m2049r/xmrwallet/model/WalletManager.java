@@ -127,6 +127,7 @@ public class WalletManager {
     static public native void logWarning(String category, String message);
     static public native void logError(String category, String message);
     static public native String moneroVersion();
+    public native boolean closeJ(Wallet wallet);
 
     /* ===== JAVA WRAPPERS ===== */
     public void setDaemon(Node node) {
@@ -181,6 +182,10 @@ public class WalletManager {
     public String getErrorString() {
         return getErrorStringJ();
     }
+    
+    public boolean close(Wallet wallet) {
+        return closeJ(wallet);
+    }    
 
     /* ===== GETTERS ===== */
     public String getWalletName() { return walletName; }
