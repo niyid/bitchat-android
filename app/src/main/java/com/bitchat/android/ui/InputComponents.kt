@@ -317,44 +317,39 @@ fun MessageInput(
         } else {
             // Send button with enabled/disabled state
             IconButton(
-                onClick = { if (hasText) onSend() }, // Only execute if there's text
-                enabled = hasText, // Enable only when there's text
+                onClick = { if (hasText) onSend() },
+                enabled = hasText,
                 modifier = Modifier.size(32.dp)
             ) {
-                // Update send button to match input field colors
                 Box(
                     modifier = Modifier
                         .size(30.dp)
                         .background(
                             color = if (!hasText) {
-                                // Disabled state - muted grey
                                 colorScheme.onSurface.copy(alpha = 0.3f)
                             } else if (selectedPrivatePeer != null || currentChannel != null) {
-                                // Orange for both private messages and channels when enabled
-                                Color(0xFFFF9500).copy(alpha = 0.75f)
+                                Color(0xFFFF9500).copy(alpha = 0.75f) // Orange for private/channel
                             } else if (colorScheme.background == Color.Black) {
                                 Color(0xFF00FF00).copy(alpha = 0.75f) // Bright green for dark theme
                             } else {
                                 Color(0xFF008000).copy(alpha = 0.75f) // Dark green for light theme
                             },
-                            shape = CircleShape
+                            shape = RoundedCornerShape(8.dp) // Rounded rectangle instead of circle
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.ArrowUpward,
+                        imageVector = Icons.Filled.Send, // Use Send icon instead of ArrowUpward
                         contentDescription = stringResource(id = R.string.send_message),
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                         tint = if (!hasText) {
-                            // Disabled state - muted grey icon
                             colorScheme.onSurface.copy(alpha = 0.5f)
                         } else if (selectedPrivatePeer != null || currentChannel != null) {
-                            // Black arrow on orange for both private and channel modes
                             Color.Black
                         } else if (colorScheme.background == Color.Black) {
-                            Color.Black // Black arrow on bright green in dark theme
+                            Color.Black
                         } else {
-                            Color.White // White arrow on dark green in light theme
+                            Color.White
                         }
                     )
                 }

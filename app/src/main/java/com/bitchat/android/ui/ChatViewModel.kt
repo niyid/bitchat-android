@@ -166,10 +166,10 @@ class ChatViewModel(
         private set
     
     init {
-        // Note: Mesh service delegate is now set by MainActivity
+        // Note: Mesh service delegate is set by MainActivity
         loadAndInitialize()
         
-        moneroChatTransferManager = MoneroChatTransferManager(getApplication<Application>().applicationContext, this, walletSuite)
+        moneroChatTransferManager = MoneroChatTransferManager(getApplication<Application>().applicationContext, this)
     }
     
     private fun loadAndInitialize() {

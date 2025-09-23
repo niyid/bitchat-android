@@ -25,8 +25,7 @@ import com.bitchat.android.monero.mesh.BitchatMoneroTransfer
  */
 class MoneroChatTransferManager(
     private val context: Context,
-    private val viewModel: ChatViewModel,
-    private val walletSuite: WalletSuite?
+    private val viewModel: ChatViewModel
 ) {
     companion object {
         private const val TAG = "com.bitchat.MoneroChatTransferManager"
@@ -90,6 +89,7 @@ class MoneroChatTransferManager(
 
     /**
      * Creates and sends a Monero transaction to a peer.
+     * FIXED: Uses viewModel.walletSuite and properly calls onSuccess/onError callbacks
      */
     fun handleMoneroSend(
         amount: String,
@@ -114,9 +114,16 @@ class MoneroChatTransferManager(
             return
         }
 
+        val walletSuite = viewModel.walletSuite
+        if (walletSuite == null) {
+            Log.e(TAG, "WalletSuite is null, cannot create transaction")
+            onError("Wallet not available")
+            return
+        }
+
         try {
             Log.i(TAG, "Creating tx blob for $amount XMR to address=$receiverMoneroAddress")
-            walletSuite?.createTxBlob(receiverMoneroAddress, amount, object : WalletSuite.TxBlobCallback {
+            walletSuite.createTxBlob(receiverMoneroAddress, amount, object : WalletSuite.TxBlobCallback {
                 override fun onSuccess(txId: String, base64Blob: String) {
                     Log.i(TAG, "Tx blob created successfully. txId=$txId, blobSize=${base64Blob.length} chars")
 
@@ -134,13 +141,20 @@ class MoneroChatTransferManager(
 
                     if (base64Blob.length < MONERO_FILE_THRESHOLD) {
                         Log.d(TAG, "Sending tx via message (size under threshold).")
-                        sendViaMessage(selectedPrivatePeer, base64Blob, txId)
+                        try {
+                            sendViaMessage(selectedPrivatePeer, base64Blob, txId)
+                            viewModel.addSystemMessage("💰 Created tx for $amount XMR — TxID: $txId")
+                            onSuccess()
+                            Log.d(TAG, "Transaction sent via message successfully, called onSuccess()")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to send via message", e)
+                            onError("Failed to send transaction via message: ${e.message}")
+                        }
                     } else {
                         Log.d(TAG, "Sending tx via file (size exceeds threshold).")
                         sendViaFile(transaction, selectedPrivatePeer, onSuccess, onError)
+                        viewModel.addSystemMessage("💰 Created tx for $amount XMR — TxID: $txId")
                     }
-
-                    viewModel.addSystemMessage("💰 Created tx for $amount XMR – TxID: $txId")
                 }
 
                 override fun onError(error: String) {
@@ -150,18 +164,53 @@ class MoneroChatTransferManager(
             })
         } catch (e: Exception) {
             Log.e(TAG, "Exception in handleMoneroSend", e)
+            onError("Unexpected error: ${e.message}")
         } catch (e: Error) {
-            Log.e(TAG, "Exception in handleMoneroSend", e)
+            Log.e(TAG, "Error in handleMoneroSend", e)
+            onError("Unexpected error: ${e.message}")
         }
     }
 
     /**
      * Sends a transaction blob inside a direct message (base64 string).
+     * Enhanced with proper error handling and validation.
      */
     private fun sendViaMessage(peer: String, base64Blob: String, txId: String) {
         Log.i(TAG, "Sending txId=$txId via direct message to peer=$peer")
-        viewModel.sendDirectMessage(peer, "[XMR_TX_BLOB]$base64Blob")
-        viewModel.addSystemMessage("📩 Sent Monero transaction blob via message (TxID: $txId)")
+        Log.d(TAG, "Blob size: ${base64Blob.length} characters")
+        
+        try {
+            // Validate inputs
+            if (peer.isBlank()) {
+                throw IllegalArgumentException("Peer cannot be blank")
+            }
+            
+            if (base64Blob.isBlank()) {
+                throw IllegalArgumentException("Transaction blob cannot be blank")
+            }
+            
+            if (txId.isBlank()) {
+                throw IllegalArgumentException("Transaction ID cannot be blank")
+            }
+            
+            // Validate base64 format
+            try {
+                Base64.decode(base64Blob, Base64.DEFAULT)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException("Invalid base64 blob format", e)
+            }
+            
+            // Send the message
+            val message = "[XMR_TX_BLOB]$base64Blob"
+            Log.d(TAG, "Sending message with prefix [XMR_TX_BLOB] and ${base64Blob.length} char blob")
+            
+            val success = viewModel.sendDirectMessage(peer, message)
+            Log.i(TAG, "Successfully sent Monero transaction blob via message (TxID: $txId)")
+            viewModel.addSystemMessage("📩 Sent Monero transaction blob via message (TxID: $txId)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send transaction via message: txId=$txId", e)
+            throw e // Re-throw so the calling code can handle it
+        }
     }
 
     /**
@@ -232,11 +281,18 @@ class MoneroChatTransferManager(
         fromPeer: String
     ) {
         Log.i(TAG, "Handling received tx from peer=$fromPeer, txId=${transaction.txHash}")
-        viewModel.addSystemMessage("💰 Received Monero transaction from $fromPeer – TxID: ${transaction.txHash}")
+        viewModel.addSystemMessage("💰 Received Monero transaction from $fromPeer — TxID: ${transaction.txHash}")
+
+        val walletSuite = viewModel.walletSuite
+        if (walletSuite == null) {
+            Log.e(TAG, "WalletSuite is null, cannot handle received transaction")
+            viewModel.addSystemMessage("❌ Failed to handle received tx: Wallet not available")
+            return
+        }
 
         moneroTransfer.saveAndSubmitTransaction(
             transaction,
-            walletSuite!!,
+            walletSuite,
             onSuccess = { txHash ->
                 viewModel.addSystemMessage("✅ Submitted received Monero tx to network: $txHash")
             },
@@ -246,4 +302,3 @@ class MoneroChatTransferManager(
         )
     }
 }
-
