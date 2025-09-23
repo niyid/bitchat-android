@@ -153,7 +153,6 @@ public class Wallet {
     public native boolean init(String daemonAddress, long upperTransactionSizeLimit, String daemonUsername, String daemonPassword, boolean useSsl, boolean lightWallet);
 
     // Wallet management
-    public native boolean close(boolean store);
     public native boolean store();
     public native boolean store(String path);
     public native String getFilename();
@@ -229,8 +228,12 @@ public class Wallet {
     @Override
     protected void finalize() throws Throwable {
         if (handle != 0) {
-            close(true);
+            close();
         }
         super.finalize();
     }
+    
+    public boolean close() {
+        return WalletManager.getInstance().close(this);
+    }    
 }

@@ -42,6 +42,7 @@ public class WalletSuite {
     private final Handler mainHandler;
     private boolean isInitialized = false;
     private boolean isSyncing = false;
+    private String walletAddress;
 
     // listeners
     private WalletStatusListener statusListener;
@@ -129,11 +130,15 @@ public class WalletSuite {
         }
         instance = new WalletSuite(context);
     }
+    
+    public String getCachedAddress() {
+        return walletAddress;
+    }
 
     public void close() {
         try {
             if (wallet != null && isInitialized) {
-                wallet.close(true);
+                wallet.close();
             }
         } catch (Exception e) {
             Log.w(TAG, "Error closing wallet", e);
@@ -331,6 +336,7 @@ public class WalletSuite {
                 Log.d(TAG, "Wallet error string: " + errorStr);
 
                 // Try to dump wallet metadata if possible
+                walletAddress = wallet.getAddress();
                 try {
                     Log.d(TAG, "Wallet address: " + wallet.getAddress());
                     Log.d(TAG, "Wallet seed language: " + wallet.getSeedLanguage());

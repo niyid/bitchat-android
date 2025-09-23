@@ -87,9 +87,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val isWalletReady = viewModel.isWalletReady
     val peerMoneroAddresses = viewModel.peerMoneroAddresses
     val moneroChatTransferManager = viewModel.moneroChatTransferManager
-
-    var myWalletAddress by remember { mutableStateOf<String?>(null) }
-
+    val myWalletAddress = viewModel.myWalletAddress
+    
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
     var showPasswordPrompt by remember { mutableStateOf(false) }
     var showPasswordDialog by remember { mutableStateOf(false) }
@@ -101,22 +100,18 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var forceScrollToBottom by remember { mutableStateOf(false) }
     var isScrolledUp by remember { mutableStateOf(false) }
 
-    // Initialize Monero components - FIXED: Store address locally but don't auto-share
+    // Initialize Monero components - SIMPLIFIED: Let WalletSuite handle initialization
     LaunchedEffect(Unit) {
         viewModel.initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
             override fun onWalletInitialized(success: Boolean, message: String) {
                 viewModel.updateWalletReadyState(success)
                 Log.d(TAG, "Wallet init result: $message")
 
-                if (!success) {
-                    Log.w(TAG, "Initial wallet init failed, retry loop will start")
-                    viewModel.updateWalletStatusMessage("Wallet failed: $message")
-                    // Uses WalletSuite reload mechanism instead of manual retry
-                    viewModel.startDaemonRetryLoop(context) 
-                } else {
+                if (success) {
                     viewModel.updateWalletStatusMessage("Wallet ready")
 
-                    walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
+                    // Get balance when wallet is ready
+                    viewModel.walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
                         override fun onSuccess(balance: Long, unlockedBalance: Long) {
                             Log.d(TAG, "Balance loaded after init")
                             viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
@@ -125,21 +120,14 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             viewModel.updateWalletStatusMessage("Balance error: $error")
                         }
                     })
-
-                    // Get wallet address and store locally - NO AUTO-SHARING
-                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
-                        override fun onSuccess(address: String) {
-                            myWalletAddress = address
-                            Log.d(TAG, "Wallet address retrieved: $address")
-                        }
-                        override fun onError(error: String) {
-                            viewModel.updateWalletStatusMessage("Address error: $error")
-                        }
-                    })
+                } else {
+                    viewModel.updateWalletStatusMessage("Wallet failed: $message")
+                    // No manual retry - WalletSuite handles its own retry logic
                 }
             }
 
             override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
+                Log.d(TAG, "BALANCE: balance: $balance| unlockedBalance: $unlockedBalance")
                 viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
             }
 
@@ -185,18 +173,23 @@ fun ChatScreen(viewModel: ChatViewModel) {
         })
     }
 
-    // FIXED: Share wallet address only when private chat is initiated
+    // Enhanced address sharing with better logging
     LaunchedEffect(selectedPrivatePeer, isWalletReady, myWalletAddress) {
+        Log.d(TAG, "Address sharing check: peer=$selectedPrivatePeer, ready=$isWalletReady, address=${myWalletAddress != null}")
+        
         if (selectedPrivatePeer != null && isWalletReady && myWalletAddress != null) {
             val peer = selectedPrivatePeer!!
-            if (!peerMoneroAddresses.containsKey(peer) &&
-                !viewModel.moneroAddressSentTo.contains(peer)) {
+            val alreadySent = viewModel.moneroAddressSentTo.contains(peer)
+            val hasTheirAddress = peerMoneroAddresses.containsKey(peer)
+            
+            Log.d(TAG, "Sharing conditions: alreadySent=$alreadySent, hasTheirAddress=$hasTheirAddress")
+            
+            if (!alreadySent) {
                 Log.d(TAG, "Sharing wallet address with private chat peer: $peer")
                 viewModel.shareMoneroAddressWithPeer(peer, myWalletAddress!!)
             }
         }
     }
-
 
     // Show password dialog when needed
     LaunchedEffect(showPasswordPrompt) {
@@ -212,11 +205,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
         currentChannel != null -> channelMessages[currentChannel] ?: emptyList()
         else -> messages
     }
-
-    // Check if current chat partner can receive Monero (for private chats)
-    // FIXED: Use consistent key for address lookup
-    val canReceiveMonero = selectedPrivatePeer != null && isWalletReady &&
-                          peerMoneroAddresses.containsKey(selectedPrivatePeer)
 
     // Use WindowInsets to handle keyboard properly
     Box(
@@ -284,6 +272,29 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 moneroChatTransferManager = moneroChatTransferManager,
                 viewModel = viewModel                        
             )
+            
+            val canReceiveMonero by remember(
+                selectedPrivatePeer,
+                isWalletReady,
+                peerMoneroAddresses
+            ) {
+                derivedStateOf {
+                    selectedPrivatePeer != null &&
+                    isWalletReady &&
+                    peerMoneroAddresses.containsKey(selectedPrivatePeer)
+                }
+            }
+
+            SideEffect {
+                Log.d(TAG, "canReceiveMonero=$canReceiveMonero for peer=$selectedPrivatePeer")
+            }
+            
+    
+            Log.d(TAG, "selectedPrivatePeer=$selectedPrivatePeer")
+            Log.d(TAG, "isWalletReady=$isWalletReady")
+            Log.d(TAG, "peerMoneroAddresses=$peerMoneroAddresses")
+            Log.d(TAG, "peerMoneroAddresses has selectedPrivatePeer=${peerMoneroAddresses.containsKey(selectedPrivatePeer)}")
+                        
             
             // Input area - stays at bottom with Monero integration
             ChatInputSection(
