@@ -42,6 +42,7 @@ public class Wallet {
         }
     }
 
+    private int accountIndex = 0;
     private String lastErrorString = null;
     private long handle;
     private long listenerHandle;
@@ -66,7 +67,7 @@ public class Wallet {
     public native int getStatusJ();
     private native int statusWithErrorString(int[] outStatus, String[] outError);
     public native boolean setPassword(String password);
-    public native String getAddressJ();
+    private native String getAddressJ(int accountIndex, int addressIndex);
     public native String getPath();
     public native int getNetworkType();
     public native String getSecretViewKey();
@@ -141,7 +142,7 @@ public class Wallet {
 
     // Connection
     public native boolean connectToDaemon();
-    public native ConnectionStatus getConnectionStatus();
+    private native int getConnectionStatusJ();
     public native boolean setTrustedDaemon(boolean arg);
     public native boolean isTrustedDaemon();
     public native long getDaemonConnectionTimeout();
@@ -199,11 +200,24 @@ public class Wallet {
     public int getStatus() {
         return getStatusJ();
     }
+    
+    public ConnectionStatus getConnectionStatus() {
+        int s = getConnectionStatusJ();
+        return ConnectionStatus.values()[s];
+    }    
 
     public String getAddress() {
-        return getAddressJ();
+        return getAddress(accountIndex);
     }
-    
+
+    public String getAddress(int accountIndex) {
+        return getAddressJ(accountIndex, 0);
+    }
+
+    public String getSubaddress(int addressIndex) {
+        return getAddressJ(accountIndex, addressIndex);
+    }
+
     public PendingTransaction createTransaction(String dstAddr, String paymentId, long amount, int mixinCount, int priority) {
         return createTransactionJ(dstAddr, paymentId, amount, mixinCount, priority);
     }
