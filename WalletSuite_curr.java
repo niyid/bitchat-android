@@ -35,19 +35,15 @@ public class WalletSuite {
     private static volatile boolean nativeOk = false;
     private static volatile boolean nativeChecked = false;
     private static volatile WalletSuite instance;
-    private static final int SYNC_TIMEOUT_MS = 300000; // 2 minutes
-    private static final int STUCK_THRESHOLD = 100; // 100 progress updates without change
+    private static final int SYNC_TIMEOUT_MS = 120000; // 2 minutes
+    private static final int STUCK_THRESHOLD = 30; // 30 progress updates without change
     private static final int MAX_REFRESH_RETRIES = 3;
-    private static final int BASE_TIMEOUT_MS = 120000; // min 2m
-    private static final int MAX_TIMEOUT_MS  = 600000; // cap at 10m
 
     private long syncStartTime;
     private long lastSyncHeight = -1;
     private int stuckCounter = 0;
     private int refreshRetryCount = 0;
     private WalletListener currentListener;
-    private long lastActivityTime = 0;
-
     
     // Runtime fields
     private Wallet wallet;
@@ -143,6 +139,7 @@ public class WalletSuite {
         this.daemonConfigCallback = callback;
     }    
 
+    // Constructor
     private WalletSuite(Context context) {
         this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
@@ -174,17 +171,7 @@ public class WalletSuite {
     public String getCachedAddress() {
         return walletAddress;
     }
-    
-    private int getDynamicSyncTimeout(int blocksPerSecond) {
-        if (blocksPerSecond <= 1) {
-            return MAX_TIMEOUT_MS; // very slow sync, allow more slack
-        } else if (blocksPerSecond < 20) {
-            return 300000; // 5 min
-        } else {
-            return BASE_TIMEOUT_MS; // normal fast sync
-        }
-    }
-    
+
     public void close() {
         stopSync();
         try {
@@ -292,7 +279,6 @@ public class WalletSuite {
         lastSyncHeight = -1;
         stuckCounter = 0;
         refreshRetryCount = 0;
-        lastActivityTime = System.currentTimeMillis();
 
         try {
             // Clean up any existing listener
@@ -328,40 +314,10 @@ public class WalletSuite {
                 }
 
                 @Override
-                public void refreshed() {
-                    Log.d(TAG, "Wallet refreshed");
-                    resetStuckCounter();
-
-                    if (statusListener != null) {
-                        try {
-                            long walletHeight = wallet.getBlockChainHeight();
-                            long daemonHeight = wallet.getDaemonBlockChainHeight();
-                            double percent = (daemonHeight > 0)
-                                    ? (100.0 * walletHeight / daemonHeight)
-                                    : 0.0;
-
-                            Log.d(TAG, "Refresh progress: " + walletHeight + "/" + daemonHeight +
-                                    " (" + String.format("%.1f", percent) + "%)");
-
-                            mainHandler.post(() ->
-                                    statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, percent));
-
-                            // Auto-complete sync when fully caught up
-                            if (daemonHeight > 0 && walletHeight >= daemonHeight) {
-                                completeSyncSuccess();
-                            }
-
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error in refreshed callback", e);
-                        }
-                    }
-                }
-
-                @Override
                 public void newBlock(long height) {
                     Log.d(TAG, "New block received at height: " + height);
                     resetStuckCounter();
-
+                    
                     if (statusListener != null) {
                         try {
                             long walletHeight = wallet.getBlockChainHeight();
@@ -375,43 +331,9 @@ public class WalletSuite {
 
                             mainHandler.post(() ->
                                     statusListener.onSyncProgress(walletHeight, 0, daemonHeight, percent));
-
-                            // Auto-complete sync when fully caught up
-                            if (daemonHeight > 0 && walletHeight >= daemonHeight) {
-                                completeSyncSuccess();
-                            }
-
                         } catch (Exception e) {
                             Log.e(TAG, "Error in newBlock callback", e);
                         }
-                    }
-                }
-
-                private void completeSyncSuccess() {
-                    Log.d(TAG, "Sync completed successfully");
-                    isSyncing = false;
-
-                    if (statusListener != null) {
-                        try {
-                            long walletHeight = wallet.getBlockChainHeight();
-                            long daemonHeight = wallet.getDaemonBlockChainHeight();
-                            statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, 100.0);
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error in success callback", e);
-                        }
-                    }
-                }
-
-                private void handleSyncError(String error) {
-                    Log.e(TAG, "Sync error: " + error);
-                    stopSync();
-
-                    if (statusListener != null) {
-                        mainHandler.post(() -> statusListener.onWalletInitialized(false, error));
-                    }
-
-                    if (daemonConfigCallback != null) {
-                        mainHandler.post(() -> daemonConfigCallback.onConfigError(error));
                     }
                 }
 
@@ -428,6 +350,42 @@ public class WalletSuite {
                         } catch (Exception e) {
                             Log.e(TAG, "Error in updated callback", e);
                         }
+                    }
+                }
+
+                @Override
+                public void refreshed() {
+                    Log.d(TAG, "Wallet refreshed callback - checking sync status");
+
+                    if (wallet == null || !isSyncing) {
+                        Log.d(TAG, "Sync stopped or wallet null, ignoring refresh callback");
+                        return;
+                    }
+
+                    try {
+                        long walletHeight = wallet.getBlockChainHeight();
+                        long daemonHeight = wallet.getDaemonBlockChainHeight();
+
+                        boolean isSynced = (walletHeight >= daemonHeight && daemonHeight > 0);
+
+                        Log.d(TAG, "Refresh complete - Wallet height: " + walletHeight +
+                                ", Daemon height: " + daemonHeight + ", Synced: " + isSynced);
+
+                        if (isSynced) {
+                            Log.d(TAG, "Wallet is synchronized");
+                            completeSyncSuccess();
+                        } else {
+                            if (shouldContinueSync()) {
+                                Log.d(TAG, "Continuing sync...");
+                                scheduleNextRefresh();
+                            } else {
+                                Log.w(TAG, "Sync conditions not met, restarting");
+                                restartSync();
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error in refreshed callback", e);
+                        handleSyncError("Refresh error: " + e.getMessage());
                     }
                 }
             };
@@ -509,8 +467,22 @@ public class WalletSuite {
     }
 
     private boolean shouldContinueSync() {
-        long now = System.currentTimeMillis();
-        return (now - lastActivityTime) <= SYNC_TIMEOUT_MS;
+        if (System.currentTimeMillis() - syncStartTime > SYNC_TIMEOUT_MS) {
+            Log.w(TAG, "Sync timeout exceeded");
+            return false;
+        }
+        
+        if (refreshRetryCount >= MAX_REFRESH_RETRIES) {
+            Log.w(TAG, "Max refresh retries exceeded");
+            return false;
+        }
+        
+        if (!validateDaemonConnection()) {
+            Log.w(TAG, "Daemon no longer responsive");
+            return false;
+        }
+        
+        return true;
     }
 
     private void scheduleNextRefresh() {
@@ -531,24 +503,14 @@ public class WalletSuite {
     private void resetStuckCounter() {
         stuckCounter = 0;
     }
-    
-    private final Runnable syncTimeoutRunnable = new Runnable() {
-        @Override
-        public void run() {
+
+    private void scheduleSyncTimeout() {
+        mainHandler.postDelayed(() -> {
             if (isSyncing) {
                 Log.w(TAG, "Sync timeout reached, restarting");
                 restartSync();
             }
-        }
-    };
-    
-
-    private void scheduleSyncTimeout() {
-        // update last activity timestamp
-        lastActivityTime = System.currentTimeMillis();
-
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
-        mainHandler.postDelayed(syncTimeoutRunnable, SYNC_TIMEOUT_MS);
+        }, SYNC_TIMEOUT_MS);
     }
 
     private void scheduleProgressUpdates() {
@@ -618,10 +580,7 @@ public class WalletSuite {
 
     private void stopSync() {
         isSyncing = false;
-
-        // cancel pending timeout runnable
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
-
+        
         if (wallet != null && currentListener != null) {
             try {
                 wallet.setListener(null);
@@ -629,23 +588,19 @@ public class WalletSuite {
                 Log.w(TAG, "Error removing wallet listener", e);
             }
         }
-
+        
         currentListener = null;
     }
 
     private void completeSyncSuccess() {
         Log.d(TAG, "Sync completed successfully");
         isSyncing = false;
-
-        // ✅ cancel timeout runnable since we’re done
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
-
+        
         if (statusListener != null) {
             try {
                 long walletHeight = wallet.getBlockChainHeight();
                 long daemonHeight = wallet.getDaemonBlockChainHeight();
                 statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, 100.0);
-                statusListener.onWalletInitialized(true, "Sync complete");
             } catch (Exception e) {
                 Log.e(TAG, "Error in success callback", e);
             }
@@ -655,14 +610,11 @@ public class WalletSuite {
     private void handleSyncError(String error) {
         Log.e(TAG, "Sync error: " + error);
         stopSync();
-
-        // ✅ cancel timeout runnable during error state
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
-
+        
         if (statusListener != null) {
             mainHandler.post(() -> statusListener.onWalletInitialized(false, error));
         }
-
+        
         if (daemonConfigCallback != null) {
             mainHandler.post(() -> daemonConfigCallback.onConfigError(error));
         }
