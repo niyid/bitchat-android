@@ -149,6 +149,10 @@ public class WalletManager {
         return setDaemonAddressJ(address);
     }
 
+    public void setNetworkType(NetworkType networkType) {
+        this.networkType = networkType;
+    }
+
     public Wallet createWallet(String path) {
         long walletHandle = createWalletJ(path, walletPassword, walletLanguage, toInt(networkType));
         return walletHandle != 0 ? new Wallet(walletHandle) : null;
