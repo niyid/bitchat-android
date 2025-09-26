@@ -149,9 +149,14 @@ public class Wallet {
     public native void setDaemonConnectionTimeout(long timeout);
 
     // Daemon operations
-    public native boolean init(String daemonAddress);
-    public native boolean init(String daemonAddress, long upperTransactionSizeLimit);
-    public native boolean init(String daemonAddress, long upperTransactionSizeLimit, String daemonUsername, String daemonPassword, boolean useSsl, boolean lightWallet);
+    public native long initJ(String daemonAddress,
+                             long upperTransactionLimit,
+                             String daemonUsername,
+                             String daemonPassword,
+                             boolean ssl,
+                             boolean lightWallet,
+                             String proxy);
+
 
     // Wallet management
     public native boolean store();
@@ -237,6 +242,33 @@ public class Wallet {
     public String getErrorString() {
         return lastErrorString;
     }
+    
+    /**
+     * Proxy wrapper for initJ that hides the "proxy" parameter for most cases.
+     *
+     * @param daemonAddress Daemon host or IP
+     * @param upperTransactionLimit Upper transaction size (0 = unlimited)
+     * @param daemonUsername Daemon RPC username
+     * @param daemonPassword Daemon RPC password
+     * @param ssl True if SSL should be used
+     * @param lightWallet True if light wallet mode should be enabled
+     * @return native wallet handle
+     */
+    public long init(String daemonAddress,
+                     long upperTransactionLimit,
+                     String daemonUsername,
+                     String daemonPassword,
+                     boolean ssl,
+                     boolean lightWallet) {
+        // Call through to initJ, using empty proxy string
+        return initJ(daemonAddress,
+                     upperTransactionLimit,
+                     daemonUsername,
+                     daemonPassword,
+                     ssl,
+                     lightWallet,
+                     "");
+    }    
         
     // Cleanup
     @Override
