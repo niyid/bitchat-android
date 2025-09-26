@@ -112,6 +112,10 @@ public class Node {
     @Getter
     @Setter
     private boolean selected = false;
+    
+    @Getter
+    @Setter
+    private boolean ssl = false;    
 
     @Override
     public int hashCode() {
@@ -217,6 +221,23 @@ public class Node {
     public String toNodeString() {
         return toString();
     }
+    
+    public String displayProperties() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Name: ").append(name != null ? name : "(unnamed)").append("\n");
+        sb.append("Host: ").append(host != null ? host : "(unset)").append("\n");
+        sb.append("RPC Port: ").append(rpcPort).append("\n");
+        sb.append("Levin Port: ").append(levinPort).append("\n");
+        sb.append("Network: ").append(networkType != null ? networkType.toString() : "(unset)").append("\n");
+        sb.append("Username: ").append(username != null ? username : "").append("\n");
+        sb.append("Password: ").append(!password.isEmpty() ? "******" : "").append("\n");
+        sb.append("Favourite: ").append(favourite).append("\n");
+        sb.append("Selected: ").append(selected).append("\n");
+        sb.append("SSL: ").append(ssl).append("\n");
+        sb.append("Onion: ").append(isOnion());
+        return sb.toString();
+    }
+
 
     @Override
     public String toString() {
@@ -321,6 +342,7 @@ public class Node {
         username = anotherNode.username;
         password = anotherNode.password;
         favourite = anotherNode.favourite;
+        ssl = anotherNode.ssl;
     }
 
     static private int DEFAULT_LEVIN_PORT = 0;

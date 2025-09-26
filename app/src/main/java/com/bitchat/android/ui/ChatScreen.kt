@@ -88,6 +88,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val peerMoneroAddresses = viewModel.peerMoneroAddresses
     val moneroChatTransferManager = viewModel.moneroChatTransferManager
     val myWalletAddress = viewModel.myWalletAddress
+    val showDaemonConfigDialog = viewModel.showDaemonConfigDialog
+    val daemonConfigLoading = viewModel.daemonConfigLoading    
     
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
     var showPasswordPrompt by remember { mutableStateOf(false) }
@@ -106,10 +108,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
             override fun onWalletInitialized(success: Boolean, message: String) {
                 viewModel.updateWalletReadyState(success)
                 Log.d(TAG, "Wallet init result: $message")
-
                 if (success) {
                     viewModel.updateWalletStatusMessage("Wallet ready")
-
                     // Get balance when wallet is ready
                     viewModel.walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
                         override fun onSuccess(balance: Long, unlockedBalance: Long) {
@@ -125,12 +125,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     // No manual retry - WalletSuite handles its own retry logic
                 }
             }
-
             override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
                 Log.d(TAG, "BALANCE: balance: $balance| unlockedBalance: $unlockedBalance")
                 viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
             }
-
             override fun onSyncProgress(
                 height: Long,
                 startHeight: Long,
@@ -139,9 +137,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             ) {
                 val syncing = percentDone < 100.0
                 val progress = percentDone.toInt()
-
                 viewModel.updateSyncState(syncing, progress)
-
                 if (syncing) {
                     viewModel.updateWalletStatusMessage("Syncing: $progress% ($height/$targetHeight)")
                 } else {
@@ -149,24 +145,34 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
         })
-
+        
+        // Set daemon config callback
+        viewModel.walletSuite?.setDaemonConfigCallback(object : WalletSuite.DaemonConfigCallback {
+            override fun onConfigNeeded() {
+                Log.d(TAG, "Daemon configuration needed - showing dialog")
+                viewModel.showDaemonConfigDialog()
+            }
+            
+            override fun onConfigError(error: String) {
+                Log.e(TAG, "Daemon config error: $error")
+                viewModel.addSystemMessage("⚠️ Daemon error: $error")
+            }
+        })
+        
         viewModel.initializeMoneroMessageHandler(object : MoneroMessageHandler.MoneroMessageListener {
             override fun onPaymentReceived(payment: MoneroMessageHandler.MoneroPaymentMessage) {
                 val paymentMessage = "💰 Received ${payment.amount} XMR from ${payment.fromUser}"
                 viewModel.addSystemMessage(paymentMessage)
             }
-
             override fun onAddressShared(address: String, fromUser: String) {
                 viewModel.addPeerMoneroAddress(fromUser, address)
                 viewModel.addSystemMessage("🔗 $fromUser shared Monero address")
             }
-
             override fun onPaymentRequested(request: MoneroMessageHandler.MoneroPaymentRequest) {
                 val reason = if (request.reason.isNotEmpty()) " - ${request.reason}" else ""
                 val requestMessage = "💳 ${request.fromUser} requested ${request.amount} XMR$reason"
                 viewModel.addSystemMessage(requestMessage)
             }
-
             override fun onPaymentStatusUpdated(txId: String, status: String) {
                 viewModel.updateTransactionStatus(txId, status)
             }
@@ -289,13 +295,11 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Log.d(TAG, "canReceiveMonero=$canReceiveMonero for peer=$selectedPrivatePeer")
             }
             
-    
             Log.d(TAG, "selectedPrivatePeer=$selectedPrivatePeer")
             Log.d(TAG, "isWalletReady=$isWalletReady")
             Log.d(TAG, "peerMoneroAddresses=$peerMoneroAddresses")
             Log.d(TAG, "peerMoneroAddresses has selectedPrivatePeer=${peerMoneroAddresses.containsKey(selectedPrivatePeer)}")
                         
-            
             // Input area - stays at bottom with Monero integration
             ChatInputSection(
                 messageText = messageText,
@@ -501,6 +505,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
         },
         selectedUserForSheet = selectedUserForSheet,
         selectedMessageForSheet = selectedMessageForSheet,
+        showDaemonConfigDialog = showDaemonConfigDialog,
+        daemonConfigLoading = daemonConfigLoading,
+        onDaemonConfigDismiss = { viewModel.hideDaemonConfigDialog() },
+        onDaemonConfigSave = { config -> viewModel.saveDaemonConfigAndReconnect(config) },
         viewModel = viewModel
     )
 }
@@ -848,7 +856,8 @@ private fun ChatFloatingHeader(
                     walletStatusMessage = walletStatusMessage,
                     isSyncing = isSyncing,
                     syncProgress = syncProgress,
-                    colorScheme = colorScheme
+                    colorScheme = colorScheme,
+                    onDaemonConfigClick = { viewModel.showDaemonConfigDialog() }
                 )
             }
         }
@@ -862,7 +871,8 @@ private fun MoneroWalletStatusBar(
     walletStatusMessage: String,
     isSyncing: Boolean,
     syncProgress: Int,
-    colorScheme: ColorScheme
+    colorScheme: ColorScheme,
+    onDaemonConfigClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -881,7 +891,7 @@ private fun MoneroWalletStatusBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // Status message
+            // Status message (clickable to open daemon config)
             Text(
                 text = walletStatusMessage,
                 fontSize = 11.sp,
@@ -893,10 +903,12 @@ private fun MoneroWalletStatusBar(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onDaemonConfigClick() }
             )
 
-            // Balance: show differently if syncing vs synced
+            // Balance display
             if (isWalletReady) {
                 Text(
                     text = if (isSyncing) {
@@ -908,9 +920,24 @@ private fun MoneroWalletStatusBar(
                     color = if (isSyncing) Color(0xFF2196F3) else Color(0xFF4CAF50),
                     fontWeight = FontWeight.Medium
                 )
+            } else {
+                // Show daemon config button when wallet is not ready
+                Surface(
+                    onClick = onDaemonConfigClick,
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFFFF9800).copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = "Configure",
+                        fontSize = 10.sp,
+                        color = Color(0xFFFF9800),
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
             }
 
-            // Sync progress (only show when syncing)
+            // Sync progress
             if (isSyncing) {
                 Text(
                     text = "$syncProgress%",
@@ -1192,8 +1219,21 @@ private fun ChatDialogs(
     onUserSheetDismiss: () -> Unit,
     selectedUserForSheet: String,
     selectedMessageForSheet: BitchatMessage?,
+    showDaemonConfigDialog: Boolean,
+    daemonConfigLoading: Boolean,
+    onDaemonConfigDismiss: () -> Unit,
+    onDaemonConfigSave: (DaemonConfig) -> Unit,
     viewModel: ChatViewModel
 ) {
+    val context = LocalContext.current
+    DaemonConfigDialog(
+        isVisible = showDaemonConfigDialog,
+        initialConfig = loadDaemonConfig(context),
+        onDismiss = onDaemonConfigDismiss,
+        onSave = onDaemonConfigSave,
+        isLoading = daemonConfigLoading
+    )
+    
     // Password dialog
     PasswordPromptDialog(
         show = showPasswordDialog,

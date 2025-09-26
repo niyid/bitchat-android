@@ -45,7 +45,7 @@ public class WalletManager {
         this.walletName = props.getProperty("wallet.name", "bitchat_wallet");
         this.walletPassword = props.getProperty("wallet.password", "bitchat_secure_pass");
         this.walletLanguage = props.getProperty("wallet.language", "English");
-        this.daemonAddress = props.getProperty("daemon.address", "172.20.10.5");
+        this.daemonAddress = props.getProperty("daemon.address", "10.112.145.244");
         this.daemonPort = Integer.parseInt(props.getProperty("daemon.port", "38081"));
         this.daemonUsername = props.getProperty("daemon.username", "rpc_user");
         this.daemonPassword = props.getProperty("daemon.password", "rpc_password");

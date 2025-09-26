@@ -164,7 +164,97 @@ class ChatViewModel(
         private set
     var isWalletReady by mutableStateOf(false) 
         private set
-    
+
+    var showDaemonConfigDialog by mutableStateOf(false)
+        private set
+        
+    var daemonConfigLoading by mutableStateOf(false)
+        private set
+
+    fun showDaemonConfigDialog() {
+        showDaemonConfigDialog = true
+    }
+
+    fun hideDaemonConfigDialog() {
+        showDaemonConfigDialog = false
+    }
+
+    fun saveDaemonConfigAndReconnect(config: DaemonConfig) {
+        daemonConfigLoading = true
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val success = saveDaemonConfig(getApplication(), config)
+                
+                if (success) {
+                    withContext(Dispatchers.Main) {
+                        // Reload WalletSuite configuration
+                        walletSuite?.reloadConfiguration()
+                        
+                        // Hide dialog
+                        showDaemonConfigDialog = false
+                        daemonConfigLoading = false
+                        
+                        // Restart wallet initialization with new config
+                        updateWalletReadyState(false)
+                        updateWalletStatusMessage("Connecting with new daemon settings...")
+                        
+                        // Re-initialize wallet with new daemon config
+                        initializeWalletSuite(getApplication(), object : WalletSuite.WalletStatusListener {
+                            override fun onWalletInitialized(success: Boolean, message: String) {
+                                updateWalletReadyState(success)
+                                if (success) {
+                                    updateWalletStatusMessage("Connected to new daemon successfully")
+                                    addSystemMessage("✅ Daemon configuration updated and connected")
+                                    
+                                    // Get address after successful connection
+                                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                                        override fun onSuccess(address: String) {
+                                            updateMyWalletAddress(address)
+                                        }
+                                        override fun onError(error: String) {
+                                            Log.e(TAG, "Failed to get address after daemon change: $error")
+                                        }
+                                    })
+                                } else {
+                                    updateWalletStatusMessage("Failed to connect: $message")
+                                    addSystemMessage("❌ Failed to connect to daemon: $message")
+                                }
+                            }
+                            
+                            override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
+                                updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+                            }
+                            
+                            override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
+                                val syncing = percentDone < 100.0
+                                val progress = percentDone.toInt()
+                                updateSyncState(syncing, progress)
+                                
+                                if (syncing) {
+                                    updateWalletStatusMessage("Syncing with new daemon: $progress% ($height/$targetHeight)")
+                                } else {
+                                    updateWalletStatusMessage("Synchronized with new daemon")
+                                }
+                            }
+                        })
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        daemonConfigLoading = false
+                        addSystemMessage("❌ Failed to save daemon configuration")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    daemonConfigLoading = false
+                    addSystemMessage("❌ Error saving daemon config: ${e.message}")
+                    Log.e(TAG, "Error saving daemon config", e)
+                }
+            }
+        }
+    }
+        
     init {
         // Note: Mesh service delegate is set by MainActivity
         loadAndInitialize()
