@@ -76,7 +76,7 @@ public class WalletManager {
     public Node createNodeFromConfig() {
         Node node = new Node();
         try {
-            node.setHost(daemonAddress);
+            node.setHost(daemonAddress.split(":")[0]);
         } catch (UnknownHostException ex) {
             throw new IllegalArgumentException("cannot resolve host " + daemonAddress);
         }        
@@ -136,7 +136,8 @@ public class WalletManager {
                 throw new IllegalArgumentException("network type does not match");
             this.daemonUsername = node.getUsername();
             this.daemonPassword = node.getPassword();
-            this.setDaemonAddress(node.getAddress());
+            this.setDaemonAddress(node.getHost());
+            this.daemonPort = node.getRpcPort();
         } else {
             this.daemonAddress = null;
             this.daemonUsername = "";
