@@ -508,6 +508,16 @@ public class WalletSuite {
             }
         }
 
+        // Log wallet balance after successful sync completion
+        try {
+            long balance = wallet.getBalance();
+            long unlockedBalance = wallet.getUnlockedBalance();
+            Log.i(TAG, "Sync completed - Balance: " + convertAtomicToXmr(balance) + " XMR" + 
+                      " (Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR)");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to get balance after sync completion", e);
+        }
+
         // Persist wallet data safely
         persistWalletSafely();
     }
