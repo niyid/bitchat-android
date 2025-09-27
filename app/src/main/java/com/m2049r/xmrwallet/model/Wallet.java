@@ -159,8 +159,7 @@ public class Wallet {
 
 
     // Wallet management
-    public native boolean store();
-    public native boolean store(String path);
+    public native synchronized boolean store(String path);
     public native String getFilename();
     public native boolean rescanBlockchain();
     public native void rescanBlockchainAsync();
@@ -268,7 +267,12 @@ public class Wallet {
                      ssl,
                      lightWallet,
                      "");
-    }    
+    }
+    
+
+    public boolean store() {
+        return store("");
+    }        
         
     // Cleanup
     @Override
