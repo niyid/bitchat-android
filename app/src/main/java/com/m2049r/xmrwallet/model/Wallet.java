@@ -1,9 +1,22 @@
 package com.m2049r.xmrwallet.model;
 
-import java.util.List;
+import android.util.Log;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * JNI-backed Wallet wrapper.
+ * - Uses native methods (declared here) to interact with the C++ wallet implementation.
+ * - Provides an async rescan helper that starts native async rescan and notifies via RescanCallback
+ *   once refreshed() is delivered by the WalletListener.
+ *
+ * Note: This class intentionally does NOT declare a WalletListener interface inside it.
+ *       It expects a package-level WalletListener (com.m2049r.xmrwallet.model.WalletListener)
+ *       to exist elsewhere in the project so wallet.setListener(...) calls use the same type.
+ */
 public class Wallet {
-    // Wallet status constants
+    private static final String TAG = "com.bitchat.Wallet";
+    private static final long RESCAN_TIMEOUT_MS = 10 * 60 * 1000L;
 
     public enum Status {
         Status_Ok,
@@ -11,20 +24,18 @@ public class Wallet {
         Status_Critical
     }
 
-    // Connection status
     public enum ConnectionStatus {
         ConnectionStatus_Disconnected,
         ConnectionStatus_Connected,
         ConnectionStatus_WrongVersion
     }
 
-    // Device type
     public enum Device {
         Device_Software(0, "Software"),
         Device_Ledger(1, "Ledger");
 
-        private int value;
-        private String name;
+        private final int value;
+        private final String name;
 
         Device(int value, String name) {
             this.value = value;
@@ -42,16 +53,21 @@ public class Wallet {
         }
     }
 
+    /* --- instance fields --- */
+    boolean synced = false;
     private int accountIndex = 0;
     private String lastErrorString = null;
     private long handle;
     private long listenerHandle;
+    private WalletListener listener; // expects package-level WalletListener
 
     public Wallet(long handle) {
         this.handle = handle;
     }
 
-    // Wallet creation and opening
+    /* ------------------------------------------------------------------------
+     * Native method declarations
+     * --------------------------------------------------------------------- */
     public static native boolean walletExists(String path);
     public static native Wallet openWallet(String path, String password, int networkType);
     public static native Wallet createWalletJ(String path, String password, String language, int networkType, long restoreHeight);
@@ -59,7 +75,6 @@ public class Wallet {
     public static native Wallet createWalletFromKeys(String path, String password, String language, int networkType, long restoreHeight, String address, String viewKey, String spendKey);
     public static native Wallet createWalletFromDevice(String path, String password, int networkType, String deviceName, long restoreHeight, String subaddressLookahead);
 
-    // Wallet operations
     public native String getSeed();
     public native String getSeed(String seedOffset);
     public native String getSeedLanguage();
@@ -92,19 +107,16 @@ public class Wallet {
     public native long getRestoreHeight();
     public native void refreshHistory();
 
-    // Device operations
     public native Device getDeviceType();
     public native boolean setDeviceType(Device device);
     public native boolean isHardwareWallet();
 
-    // Synchronization
     public native boolean refresh();
     public native void refreshAsync();
     public native void startRefresh();
     public native void pauseRefresh();
     public native boolean isRefreshing();
 
-    // Transaction operations
     public native String submitTransaction(String txData);
     public native PendingTransaction createTransactionJ(String dstAddr, String paymentId, long amount, int mixinCount, int priority);
     public native PendingTransaction createSweepTransaction(String dstAddr, String paymentId, int mixinCount, int priority, int accountIndex);
@@ -122,12 +134,10 @@ public class Wallet {
     public native String getReserveProof(boolean all, int accountIndex, long amount, String message);
     public native boolean checkReserveProof(String address, String message, String signature);
 
-    // Subaddresses
     public native Subaddress getSubaddress(int accountIndex, int addressIndex);
     public native SubaddressBook getSubaddressBook();
     public native String addSubaddress(int accountIndex, String label);
 
-    // Accounts
     public native void addAccount(String label);
     public native String getSubaddressLabel(int accountIndex, int addressIndex);
     public native void setSubaddressLabel(int accountIndex, int addressIndex, String label);
@@ -137,10 +147,8 @@ public class Wallet {
     public native String getAccountLabel(int accountIndex);
     public native void setAccountLabel(int accountIndex, String label);
 
-    // Address book
     public native AddressBook getAddressBook();
 
-    // Connection
     public native boolean connectToDaemon();
     private native int getConnectionStatusJ();
     public native boolean setTrustedDaemon(boolean arg);
@@ -148,7 +156,6 @@ public class Wallet {
     public native long getDaemonConnectionTimeout();
     public native void setDaemonConnectionTimeout(long timeout);
 
-    // Daemon operations
     public native long initJ(String daemonAddress,
                              long upperTransactionLimit,
                              String daemonUsername,
@@ -157,22 +164,16 @@ public class Wallet {
                              boolean lightWallet,
                              String proxy);
 
-
-    // Wallet management
     public native synchronized boolean store(String path);
     public native String getFilename();
-    public native boolean rescanBlockchain();
-    public native void rescanBlockchainAsync();
+    public native void rescanBlockchainAsyncJ();
 
-    // Key images
     public native String exportKeyImages();
     public native int importKeyImages(String keyImages);
 
-    // Outputs
     public native String exportOutputs();
     public native int importOutputs(String outputs);
 
-    // Multisig
     public native String getMultisigInfo();
     public native String makeMultisig(String multisigInfo, int threshold);
     public native boolean finalizeMultisig(String multisigInfo);
@@ -180,15 +181,13 @@ public class Wallet {
     public native String signMultisigTxHex(String multisigTxHex);
     public native String[] submitMultisigTxHex(String multisigTxHex);
 
-    // Listener
     public native void setListenerJ(WalletListener listener);
-    
+
     public native int getDefaultMixin();
     public native void setDefaultMixin(int mixin);
     public native boolean setAutoRefreshInterval(int millis);
     public native int getAutoRefreshInterval();
 
-    // Utilities
     public static native boolean paymentIdValid(String paymentId);
     public static native boolean addressValid(String address, int networkType);
     public static native boolean keyValid(String key);
@@ -197,18 +196,20 @@ public class Wallet {
     public static native void printConnections();
     public static native boolean isKeyImageSpent(String keyImage);
 
-    // Debug
     public native void setLogLevel(int level);
     public native void setLogCategories(String categories);
-    
+
+    /* ---------------------------------------------------------------------
+     * Convenience wrappers
+     * ------------------------------------------------------------------ */
     public int getStatus() {
         return getStatusJ();
     }
-    
+
     public ConnectionStatus getConnectionStatus() {
         int s = getConnectionStatusJ();
         return ConnectionStatus.values()[s];
-    }    
+    }
 
     public String getAddress() {
         return getAddress(accountIndex);
@@ -222,18 +223,146 @@ public class Wallet {
         return getAddressJ(accountIndex, addressIndex);
     }
 
+    /* ---------------------------------------------------------------------
+     * Rescan helpers
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Start the native async rescan. Returns true if the native async call
+     * was successfully invoked (does not indicate completion).
+     */
+    public boolean rescanBlockchainAsync() {
+        synced = false;
+        try {
+            rescanBlockchainAsyncJ(); // native, void
+            return true;
+        } catch (Throwable t) {
+            Log.e(TAG, "Failed to start native async rescan", t);
+            return false;
+        }
+    }
+
+    /**
+     * Start native async rescan, and notify the provided callback when a refreshed()
+     * event is received from the wallet listener (or call onError() on timeout / failure).
+     */
+    public void rescanBlockchainAsync(final RescanCallback callback) {
+        if (!isInitialized()) {
+            if (callback != null) callback.onError("Wallet not initialized");
+            return;
+        }
+
+        boolean started = rescanBlockchainAsync();
+        if (!started) {
+            if (callback != null) callback.onError("Failed to start native async rescan");
+            return;
+        }
+
+        if (callback == null) return;
+
+        final WalletListener previousListener;
+        synchronized (this) {
+            previousListener = this.listener;
+        }
+
+        final AtomicBoolean callbackFired = new AtomicBoolean(false);
+
+        WalletListener wrapper = new WalletListener() {
+            @Override
+            public void moneySent(String txId, long amount) {
+                if (previousListener != null) previousListener.moneySent(txId, amount);
+            }
+
+            @Override
+            public void moneyReceived(String txId, long amount) {
+                if (previousListener != null) previousListener.moneyReceived(txId, amount);
+            }
+
+            @Override
+            public void unconfirmedMoneyReceived(String txId, long amount) {
+                if (previousListener != null) previousListener.unconfirmedMoneyReceived(txId, amount);
+            }
+
+            @Override
+            public void refreshed() {
+                if (previousListener != null) previousListener.refreshed();
+                if (callbackFired.compareAndSet(false, true)) {
+                    try {
+                        callback.onSuccess();
+                    } catch (Throwable t) {
+                        Log.w(TAG, "Rescan callback onSuccess threw", t);
+                    } finally {
+                        try {
+                            setListener(previousListener);
+                        } catch (Throwable t) {
+                            Log.w(TAG, "Failed to restore previous listener", t);
+                        }
+                    }
+                }
+            }
+
+            @Override
+            public void newBlock(long height) {
+                if (previousListener != null) previousListener.newBlock(height);
+            }
+
+            @Override
+            public void updated() {
+                if (previousListener != null) previousListener.updated();
+            }
+        };
+
+        try {
+            setListener(wrapper);
+        } catch (Throwable t) {
+            Log.e(TAG, "Failed to set wrapper listener", t);
+            try { setListener(previousListener); } catch (Throwable ignored) {}
+            if (callback != null) callback.onError("Failed to attach listener for rescan monitoring");
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                Thread.sleep(RESCAN_TIMEOUT_MS);
+                if (callbackFired.compareAndSet(false, true)) {
+                    try { setListener(previousListener); } catch (Throwable ignored) {}
+                    if (callback != null) callback.onError("Rescan timed out after " + (RESCAN_TIMEOUT_MS / 1000) + "s");
+                }
+            } catch (InterruptedException ignored) {}
+        }, "rescan-timeout-thread").start();
+    }
+
+    /* ---------------------------------------------------------------------
+     * Callback interface (unique to Wallet)
+     * ------------------------------------------------------------------ */
+    public interface RescanCallback {
+        void onSuccess();
+        void onError(String error);
+    }
+
+    /* ---------------------------------------------------------------------
+     * API for listener plumbing - uses package-level WalletListener type
+     * ------------------------------------------------------------------ */
+    public void setListener(WalletListener listener) {
+        this.listener = listener;
+        setListenerJ(listener);
+    }
+
+    /* ---------------------------------------------------------------------
+     * Helpers & smaller APIs
+     * ------------------------------------------------------------------ */
+    private boolean isInitialized() {
+        return handle != 0;
+    }
+
     public PendingTransaction createTransaction(String dstAddr, String paymentId, long amount, int mixinCount, int priority) {
         return createTransactionJ(dstAddr, paymentId, amount, mixinCount, priority);
     }
-    
-    public void setListener(WalletListener listener) {
-        setListenerJ(listener);
-    }
-    
+
     public int getLastStatus() {
         int[] outStatus = new int[1];
         String[] outError = new String[1];
-        int r = statusWithErrorString(outStatus, outError);
+        statusWithErrorString(outStatus, outError);
         lastErrorString = outError[0];
         return outStatus[0];
     }
@@ -241,40 +370,21 @@ public class Wallet {
     public String getErrorString() {
         return lastErrorString;
     }
-    
-    /**
-     * Proxy wrapper for initJ that hides the "proxy" parameter for most cases.
-     *
-     * @param daemonAddress Daemon host or IP
-     * @param upperTransactionLimit Upper transaction size (0 = unlimited)
-     * @param daemonUsername Daemon RPC username
-     * @param daemonPassword Daemon RPC password
-     * @param ssl True if SSL should be used
-     * @param lightWallet True if light wallet mode should be enabled
-     * @return native wallet handle
-     */
+
+    /** Proxy wrapper for initJ that hides the "proxy" parameter for most cases. */
     public long init(String daemonAddress,
                      long upperTransactionLimit,
                      String daemonUsername,
                      String daemonPassword,
                      boolean ssl,
                      boolean lightWallet) {
-        // Call through to initJ, using empty proxy string
-        return initJ(daemonAddress,
-                     upperTransactionLimit,
-                     daemonUsername,
-                     daemonPassword,
-                     ssl,
-                     lightWallet,
-                     "");
+        return initJ(daemonAddress, upperTransactionLimit, daemonUsername, daemonPassword, ssl, lightWallet, "");
     }
-    
 
     public boolean store() {
-        return store("");
-    }        
-        
-    // Cleanup
+        return store(getFilename());
+    }
+
     @Override
     protected void finalize() throws Throwable {
         if (handle != 0) {
@@ -282,8 +392,9 @@ public class Wallet {
         }
         super.finalize();
     }
-    
+
     public boolean close() {
         return WalletManager.getInstance().close(this);
-    }    
+    }
 }
+
