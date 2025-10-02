@@ -24,6 +24,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.Properties;
+import java.util.List;
 import java.util.concurrent.*;
 
 import java.net.HttpURLConnection;
@@ -1652,6 +1653,40 @@ public class WalletSuite {
             }
         });
     }
+    
+    private long getEstimatedCreationHeight() {
+        // First try restore height
+        try {
+            long restoreHeight = wallet.getRestoreHeight();
+            if (restoreHeight > 0) {
+                return restoreHeight;
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "Could not get restore height, trying transaction history");
+        }
+        
+        // Fall back to first transaction height
+        try {
+            List<TransactionInfo> transactions = wallet.getHistory().getAll();
+            if (transactions != null && !transactions.isEmpty()) {
+                long earliestHeight = Long.MAX_VALUE;
+                for (TransactionInfo tx : transactions) {
+                    long blockHeight = tx.blockheight;
+                    if (blockHeight > 0 && blockHeight < earliestHeight) {
+                        earliestHeight = blockHeight;
+                    }
+                }
+                if (earliestHeight != Long.MAX_VALUE) {
+                    return earliestHeight;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error getting transaction history", e);
+        }
+        
+        // Final fallback - scan from genesis
+        return 0;
+    }
 
     /**
      * NEW METHOD 3: Manual search for missing transaction
@@ -1678,13 +1713,13 @@ public class WalletSuite {
 
                         try {
                             long currentHeight = wallet.getBlockChainHeight();
-                            //long creationHeight = wallet.getCreationHeight();
+                            long creationHeight = getEstimatedCreationHeight();
 
                             // Progressive scan depths: last 500, last 5000, then from creation height
                             long[] rescanHeights = new long[] {
                                 Math.max(currentHeight - 500, 0),
                                 Math.max(currentHeight - 5000, 0),
-                                0
+                                creationHeight
                             };
 
                             attemptRescanWithFallback(txId, callback, rescanHeights, 0);
