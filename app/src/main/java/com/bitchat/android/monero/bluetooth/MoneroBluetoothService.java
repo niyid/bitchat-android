@@ -22,9 +22,17 @@ import android.bluetooth.le.ScanSettings;
 import android.content.Context;
 import android.os.ParcelUuid;
 import android.util.Log;
+import java.util.function.Consumer;
 
 import com.bitchat.android.model.UserProfile;
+import com.bitchat.android.monero.model.MoneroPayment;
+import com.bitchat.android.monero.model.MoneroPaymentRequest;
+import com.bitchat.android.monero.model.MoneroSearchRequest;
 import com.bitchat.android.monero.messaging.MoneroMessageHandler;
+import com.bitchat.android.monero.messaging.MoneroMessageHandler.MoneroPaymentMessage;
+import com.bitchat.android.monero.messaging.MoneroMessageHandler.TransactionIdMessage;
+import com.bitchat.android.monero.messaging.MoneroMessageHandler.SearchTransactionRequest;
+
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -69,7 +77,48 @@ public class MoneroBluetoothService {
     
     // Listeners
     private BluetoothServiceListener serviceListener;
-    private MoneroMessageHandler messageHandler;
+    
+// Fix for MoneroBluetoothService.java line 85-96
+// Replace the initializeMoneroMessageHandler method with this:
+
+    public static MoneroMessageHandler initializeMoneroMessageHandler(
+        MoneroMessageHandler.MoneroMessageListener listener,
+        Consumer<String> addSystemMessage,
+        SystemMessageProvider systemMessageProvider) {
+
+        return new MoneroMessageHandler(
+            (com.bitchat.android.monero.messaging.MoneroMessageHandler.MoneroPaymentMessage payment) -> {
+                listener.onPaymentReceived(payment);
+                Log.i(TAG, "✅ onPaymentReceived: " + payment.toString());
+                return kotlin.Unit.INSTANCE; // Explicitly return Unit
+            },
+            (String addr, String from) -> {
+                listener.onAddressShared(addr, from);
+                Log.i(TAG, "✅ onAddressShared: " + addr + " (from " + from + ")");
+                return kotlin.Unit.INSTANCE; // Explicitly return Unit
+            },
+            (com.bitchat.android.monero.messaging.MoneroMessageHandler.MoneroPaymentRequest request) -> {
+                listener.onPaymentRequested(request);
+                Log.i(TAG, "✅ onPaymentRequested: " + request.toString());
+                return kotlin.Unit.INSTANCE; // Explicitly return Unit
+            },
+            (String txId, String status) -> {
+                listener.onPaymentStatusUpdated(txId, status);
+                Log.i(TAG, "✅ onPaymentStatusUpdated: txId=" + txId + ", status=" + status);
+                return kotlin.Unit.INSTANCE; // Explicitly return Unit
+            },
+            (com.bitchat.android.monero.messaging.MoneroMessageHandler.TransactionIdMessage txIdMsg) -> {
+                listener.onTransactionIdReceived(txIdMsg);
+                Log.i(TAG, "✅ onTransactionIdReceived: " + txIdMsg.toString());
+                return kotlin.Unit.INSTANCE; // Explicitly return Unit
+            },
+            (com.bitchat.android.monero.messaging.MoneroMessageHandler.SearchTransactionRequest request) -> {
+                listener.onTransactionSearchRequested(request);
+                Log.i(TAG, "✅ onTransactionSearchRequested: " + request.toString());
+                return kotlin.Unit.INSTANCE; // Explicitly return Unit
+            }
+        );
+    }
     
     public interface BluetoothServiceListener {
         void onDeviceDiscovered(UserProfile userProfile);
@@ -81,11 +130,37 @@ public class MoneroBluetoothService {
         void onAdvertisingFailed(int errorCode);
     }
     
+    public static class SystemMessageProvider {
+
+        public String onPaymentReceived(MoneroPayment payment) {
+            return "✅ Payment received: " + payment.getAmount() + " XMR";
+        }
+
+        public String onAddressShared(String address, String fromUser) {
+            return "📍 Address shared by " + fromUser;
+        }
+
+        public String onPaymentRequested(MoneroPaymentRequest request) {
+            return "💳 Payment request: " + request.getAmount() + " XMR - " + request.getReason();
+        }
+
+        public String onPaymentStatusUpdated(String txId, String status) {
+            return "ℹ️ Payment " + txId.substring(0, 8) + "... " + status;
+        }
+
+        public String onTransactionIdReceived(MoneroMessageHandler.TransactionIdMessage msg) {
+            return "🆔 Transaction ID received: " + msg.getTxId();
+        }
+
+        public String onTransactionSearchRequested(MoneroSearchRequest request) {
+            return "🔎 Searching for transaction " + request.getTxId();
+        }
+    }
+        
     private MoneroBluetoothService(Context context) {
         this.context = context.getApplicationContext();
         this.bluetoothManager = (BluetoothManager) context.getSystemService(Context.BLUETOOTH_SERVICE);
         this.bluetoothAdapter = bluetoothManager.getAdapter();
-        this.messageHandler = new MoneroMessageHandler();
         
         if (bluetoothAdapter != null) {
             this.advertiser = bluetoothAdapter.getBluetoothLeAdvertiser();
@@ -93,6 +168,14 @@ public class MoneroBluetoothService {
         }
     }
     
+    private void handleSystemMessage(String message, String from) {
+        // Log, store, or dispatch internally
+        Log.d(TAG, "System message from " + from + ": " + message);
+        // Optionally re-route as normal:
+        // listener.onMessageReceived("[SYSTEM] $message", from)
+    }
+
+
     public static synchronized MoneroBluetoothService getInstance(Context context) {
         if (instance == null) {
             instance = new MoneroBluetoothService(context);

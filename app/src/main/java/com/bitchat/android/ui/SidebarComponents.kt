@@ -23,6 +23,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bitchat.android.ui.theme.BASE_FONT_SIZE
 
+//import com.bitchat.android.ui.TransactionSearchDialog
+//import com.bitchat.android.ui.PendingTransactionsSheet
+
 
 /**
  * Sidebar components for ChatScreen
@@ -46,6 +49,11 @@ fun SidebarOverlay(
     val unreadChannelMessages by viewModel.unreadChannelMessages.observeAsState(emptyMap())
     val peerNicknames by viewModel.peerNicknames.observeAsState(emptyMap())
     val peerRSSI by viewModel.peerRSSI.observeAsState(emptyMap())
+    
+    val pendingTransactions by viewModel.pendingTransactionSearches.observeAsState(emptySet<String>())
+
+    var showTransactionSearchDialog by remember { mutableStateOf(false) }
+    var showPendingTransactionsSheet by remember { mutableStateOf(false) }    
 
     Box(
         modifier = modifier
@@ -137,10 +145,45 @@ fun SidebarOverlay(
                             }
                         }
                     }
+                    
+                    item {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                    
+                    item {
+                        MoneroToolsSection(
+                            pendingCount = pendingTransactions.size,
+                            onSearchClick = {
+                                showTransactionSearchDialog = true
+                                onDismiss()
+                            },
+                            onPendingClick = {
+                                showPendingTransactionsSheet = true
+                                onDismiss()
+                            }
+                        )
+                    }
                 }
             }
         }
     }
+
+    TransactionSearchDialog(
+        isVisible = showTransactionSearchDialog,
+        onDismiss = { showTransactionSearchDialog = false },
+        onSearch = { txId ->
+            viewModel.searchForMissingTransaction(txId)
+        }
+    )
+
+    PendingTransactionsSheet(
+        isPresented = showPendingTransactionsSheet,
+        onDismiss = { showPendingTransactionsSheet = false },
+        pendingTransactions = pendingTransactions,
+        onRetryAll = { viewModel.retryPendingTransactionSearches() },
+        onRetryOne = { txId -> viewModel.searchForMissingTransaction(txId) },
+        onClearOne = { txId -> viewModel.clearPendingTransaction(txId) }
+    )    
 }
 
 @Composable
@@ -606,5 +649,109 @@ private fun convertRSSIToSignalStrength(rssi: Int?): Int {
         rssi >= -85 -> 50   // Fair signal
         rssi >= -100 -> 25  // Poor signal
         else -> 0           // Very poor or no signal
+    }
+}
+
+@Composable
+private fun MoneroToolsSection(
+    pendingCount: Int,
+    onSearchClick: () -> Unit,
+    onPendingClick: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.CurrencyExchange,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "MONERO TOOLS",
+                style = MaterialTheme.typography.labelSmall,
+                color = colorScheme.onSurface.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold
+            )
+        }
+        
+        // Search Transaction
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onSearchClick() }
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search transaction",
+                modifier = Modifier.size(16.dp),
+                tint = colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            Text(
+                text = "Search Transaction",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colorScheme.onSurface
+            )
+        }
+        
+        // Pending Transactions
+        if (pendingCount > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPendingClick() }
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.HourglassEmpty,
+                    contentDescription = "Pending transactions",
+                    modifier = Modifier.size(16.dp),
+                    tint = Color(0xFFFF9800)
+                )
+                
+                Spacer(modifier = Modifier.width(12.dp))
+                
+                Text(
+                    text = "Pending Transactions",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                // Pending count badge
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = Color(0xFFFF9800),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .defaultMinSize(minWidth = 20.dp, minHeight = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = pendingCount.toString(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = Color.White
+                    )
+                }
+            }
+        }
     }
 }
