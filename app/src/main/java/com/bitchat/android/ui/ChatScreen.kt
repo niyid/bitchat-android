@@ -49,6 +49,10 @@ import java.util.*
 import kotlin.collections.HashMap
 import android.util.Log
 
+//import com.bitchat.android.ui.TransactionSearchDialog
+//import com.bitchat.android.ui.PendingTransactionsSheet
+//import com.bitchat.android.ui.PendingTransactionsIndicator
+
 private const val TAG = "com.bitchat.ChatScreen"
 
 /**
@@ -85,9 +89,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val syncProgress = viewModel.syncProgress
     val walletStatusMessage = viewModel.walletStatusMessage
     val isWalletReady = viewModel.isWalletReady
-    val peerMoneroAddresses = viewModel.peerMoneroAddresses
+    val peerMoneroAddresses by viewModel.peerMoneroAddresses
     val moneroChatTransferManager = viewModel.moneroChatTransferManager
-    val myWalletAddress = viewModel.myWalletAddress
+    val myWalletAddress by viewModel.myWalletAddress.observeAsState()
     val showDaemonConfigDialog = viewModel.showDaemonConfigDialog
     val daemonConfigLoading = viewModel.daemonConfigLoading    
     
@@ -101,6 +105,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var selectedMessageForSheet by remember { mutableStateOf<BitchatMessage?>(null) }
     var forceScrollToBottom by remember { mutableStateOf(false) }
     var isScrolledUp by remember { mutableStateOf(false) }
+    
+    var showTransactionSearchDialog by remember { mutableStateOf(false) }
+    var showPendingTransactionsSheet by remember { mutableStateOf(false) }
+    val pendingTransactions by viewModel.pendingTransactionSearches.observeAsState(emptySet())   
 
     // Initialize Monero components - SIMPLIFIED: Let WalletSuite handle initialization
     LaunchedEffect(Unit) {
@@ -159,7 +167,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
         })
         
-        viewModel.initializeMoneroMessageHandler(object : MoneroMessageHandler.MoneroMessageListener {
+        MoneroMessageHandler.initializeMoneroMessageHandler(object : MoneroMessageHandler.MoneroMessageListener {
             override fun onPaymentReceived(payment: MoneroMessageHandler.MoneroPaymentMessage) {
                 val paymentMessage = "💰 Received ${payment.amount} XMR from ${payment.fromUser}"
                 viewModel.addSystemMessage(paymentMessage)
@@ -175,6 +183,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
             }
             override fun onPaymentStatusUpdated(txId: String, status: String) {
                 viewModel.updateTransactionStatus(txId, status)
+            }
+            override fun onTransactionIdReceived(txIdMessage: MoneroMessageHandler.TransactionIdMessage) {
+                viewModel.addSystemMessage("📨 Transaction ID received: ${txIdMessage.txId}")
+            }
+
+            override fun onTransactionSearchRequested(request: MoneroMessageHandler.SearchTransactionRequest) {
+                viewModel.addSystemMessage("🔍 Transaction search requested for: ${request.txId}")
             }
         })
     }
@@ -511,6 +526,23 @@ fun ChatScreen(viewModel: ChatViewModel) {
         onDaemonConfigSave = { config -> viewModel.saveDaemonConfigAndReconnect(config) },
         viewModel = viewModel
     )
+    
+    TransactionSearchDialog(
+        isVisible = showTransactionSearchDialog,
+        onDismiss = { showTransactionSearchDialog = false },
+        onSearch = { txId ->
+            viewModel.searchForMissingTransaction(txId)
+        }
+    )
+
+    PendingTransactionsSheet(
+        isPresented = showPendingTransactionsSheet,
+        onDismiss = { showPendingTransactionsSheet = false },
+        pendingTransactions = pendingTransactions,
+        onRetryAll = { viewModel.retryPendingTransactionSearches() },
+        onRetryOne = { txId -> viewModel.searchForMissingTransaction(txId) },
+        onClearOne = { txId -> viewModel.clearPendingTransaction(txId) }
+    )    
 }
 
 // ENHANCED: Monero send handler function with balance checking and extensive logging
@@ -872,7 +904,9 @@ private fun MoneroWalletStatusBar(
     isSyncing: Boolean,
     syncProgress: Int,
     colorScheme: ColorScheme,
-    onDaemonConfigClick: () -> Unit
+    onDaemonConfigClick: () -> Unit,
+    pendingCount: Int = 0,             
+    onPendingClick: () -> Unit = {} 
 ) {
     Surface(
         modifier = Modifier
@@ -907,7 +941,6 @@ private fun MoneroWalletStatusBar(
                     .weight(1f)
                     .clickable { onDaemonConfigClick() }
             )
-
             // Balance display
             if (isWalletReady) {
                 Text(
@@ -936,7 +969,6 @@ private fun MoneroWalletStatusBar(
                     )
                 }
             }
-
             // Sync progress
             if (isSyncing) {
                 Text(
@@ -946,8 +978,16 @@ private fun MoneroWalletStatusBar(
                     fontWeight = FontWeight.Bold
                 )
             }
+            
+            if (pendingCount > 0) {
+                Spacer(modifier = Modifier.width(8.dp))
+                PendingTransactionsIndicator(
+                    pendingCount = pendingCount,
+                    onClick = onPendingClick  // Remove the () - it's already a lambda
+                )
+            }  
         }
-    }
+    }  
 }
 
 @Composable

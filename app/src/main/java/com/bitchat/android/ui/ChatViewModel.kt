@@ -5,32 +5,31 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.bitchat.android.mesh.BluetoothMeshDelegate
 import com.bitchat.android.mesh.BluetoothMeshService
 import com.bitchat.android.model.BitchatMessage
-import com.bitchat.android.protocol.BitchatPacket
 import com.bitchat.android.nostr.NostrGeohashService
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import com.bitchat.android.monero.messaging.MoneroMessageHandler
 import com.bitchat.android.monero.wallet.WalletSuite
 import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
-
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.isActive
-
 import java.util.*
 import kotlin.random.Random
+import androidx.compose.ui.graphics.Color
 
-/**
- * Refactored ChatViewModel - Main coordinator for bitchat functionality
- * FIXED: Proper Monero address sharing only during private chat initiation
- */
+import java.io.File
+import java.io.FileOutputStream
+import java.util.Properties
+
 class ChatViewModel(
     application: Application,
     val meshService: BluetoothMeshService
@@ -40,28 +39,24 @@ class ChatViewModel(
         private const val TAG = "com.bitchat.ChatViewModel"
     }
 
-    // State management
     private val state = ChatState()
-    
-    // Specialized managers
     private val dataManager = DataManager(application.applicationContext)
     private val messageManager = MessageManager(state)
     private val channelManager = ChannelManager(state, messageManager, dataManager, viewModelScope)
-    
-    // Create Noise session delegate for clean dependency injection
+
     private val noiseSessionDelegate = object : NoiseSessionDelegate {
         override fun hasEstablishedSession(peerID: String): Boolean = meshService.hasEstablishedSession(peerID)
-        override fun initiateHandshake(peerID: String) = meshService.initiateNoiseHandshake(peerID) 
+        override fun initiateHandshake(peerID: String) = meshService.initiateNoiseHandshake(peerID)
         override fun getMyPeerID(): String = meshService.myPeerID
     }
-    
+
     var moneroChatTransferManager: MoneroChatTransferManager? by mutableStateOf(null)
         private set
 
     val privateChatManager = PrivateChatManager(state, messageManager, dataManager, noiseSessionDelegate)
     private val commandProcessor = CommandProcessor(state, messageManager, channelManager, privateChatManager)
     private val notificationManager = NotificationManager(application.applicationContext)
-    // Delegate handler for mesh callbacks
+
     private val meshDelegateHandler = MeshDelegateHandler(
         state = state,
         messageManager = messageManager,
@@ -73,11 +68,7 @@ class ChatViewModel(
         getMyPeerID = { meshService.myPeerID },
         getMeshService = { meshService }
     )
-    
-    var myWalletAddress by mutableStateOf<String?>(null)
-    private set
-    
-    // Nostr and Geohash service - initialize singleton
+
     private val nostrGeohashService = NostrGeohashService.initialize(
         application = application,
         state = state,
@@ -88,14 +79,8 @@ class ChatViewModel(
         dataManager = dataManager,
         notificationManager = notificationManager
     )
-    
-    fun updateMyWalletAddress(address: String) {
-        myWalletAddress = address
-        Log.d(TAG, "Wallet address updated: $address")
-        // DO NOT auto-share here - sharing only happens when private chat is initiated
-    }    
-    
-    // Expose state through LiveData (maintaining the same interface)
+
+    // State exposures
     val messages: LiveData<List<BitchatMessage>> = state.messages
     val connectedPeers: LiveData<List<String>> = state.connectedPeers
     val nickname: LiveData<String> = state.nickname
@@ -128,46 +113,41 @@ class ChatViewModel(
     val geohashPeople: LiveData<List<GeoPerson>> = state.geohashPeople
     val teleportedGeo: LiveData<Set<String>> = state.teleportedGeo
     val geohashParticipantCounts: LiveData<Map<String, Int>> = state.geohashParticipantCounts
-    
-    // FIXED: Map of peer -> Monero address using consistent keys
+
     private val _peerMoneroAddresses = mutableStateOf(emptyMap<String, String>())
-    val peerMoneroAddresses: Map<String, String> get() = _peerMoneroAddresses.value
-    
-    // Track which peers we've sent our address to
-    private val _moneroAddressSentTo = mutableStateOf(emptySet<String>())
-    val moneroAddressSentTo: Set<String> get() = _moneroAddressSentTo.value
+    val peerMoneroAddresses: State<Map<String, String>> = _peerMoneroAddresses
 
-    fun markAddressAsSent(peer: String) {
-        _moneroAddressSentTo.value = _moneroAddressSentTo.value + peer
-    }
-    
-    // Track daemon connection state
-    private var lastSyncHeight: Long = 0L
-    private var lastSyncAttemptTime: Long = 0L
+    private val _pendingTransactionSearches = MutableLiveData<Set<String>>(emptySet())
+    val pendingTransactionSearches: LiveData<Set<String>> = _pendingTransactionSearches
 
-    // Track retry job
-    private var retryJob: kotlinx.coroutines.Job? = null
-    
-    var walletSuite by mutableStateOf<WalletSuite?>(null) 
-        private set
-    var moneroMessageHandler by mutableStateOf(MoneroMessageHandler())
-        private set
-    var isMoneroModeActive by mutableStateOf(false) 
-        
-    var currentBalance by mutableStateOf("0.000000") 
-        private set
-    var isSyncing by mutableStateOf(false) 
-        private set
-    var syncProgress by mutableStateOf(0) 
-        private set
-    var walletStatusMessage by mutableStateOf("Wallet initializing...") 
-        private set
-    var isWalletReady by mutableStateOf(false) 
+    var walletSuite by mutableStateOf<WalletSuite?>(null)
         private set
 
+    lateinit var moneroMessageHandler: MoneroMessageHandler
+        private set
+
+    var isMoneroModeActive by mutableStateOf(false)
+    var currentBalance by mutableStateOf("0.000000")
+        private set
+    var isSyncing by mutableStateOf(false)
+        private set
+    var syncProgress by mutableStateOf(0)
+        private set
+    var walletStatusMessage by mutableStateOf("Wallet initializing...")
+        private set
+    var isWalletReady by mutableStateOf(false)
+        private set
+    
+    private val transactionMessages = mutableMapOf<String, BitchatMessage>()
+
+    private val _myWalletAddress = MutableLiveData<String?>()
+    val myWalletAddress: LiveData<String?> = _myWalletAddress
+
+    val moneroAddressSentTo = mutableSetOf<String>()
+    
     var showDaemonConfigDialog by mutableStateOf(false)
         private set
-        
+                
     var daemonConfigLoading by mutableStateOf(false)
         private set
 
@@ -178,7 +158,11 @@ class ChatViewModel(
     fun hideDaemonConfigDialog() {
         showDaemonConfigDialog = false
     }
-
+    
+    fun updateMyWalletAddress(address: String) {
+        _myWalletAddress.value = address
+    }
+    
     fun saveDaemonConfigAndReconnect(config: DaemonConfig) {
         daemonConfigLoading = true
         
@@ -253,15 +237,50 @@ class ChatViewModel(
                 }
             }
         }
-    }
-        
+    }    
+
     init {
-        // Note: Mesh service delegate is set by MainActivity
         loadAndInitialize()
-        
-        moneroChatTransferManager = MoneroChatTransferManager(getApplication<Application>().applicationContext, this)
+        moneroMessageHandler = createDefaultMoneroHandler()
+        // Don't initialize moneroChatTransferManager here - will be done after wallet initialization
     }
-    
+
+    private fun createDefaultMoneroHandler(): MoneroMessageHandler {
+        return MoneroMessageHandler(
+            onPaymentReceived = { payment ->
+                addSystemMessage("💰 Payment received: ${payment.amount} XMR from ${payment.fromUser}")
+            },
+            onAddressShared = { address, fromUser ->
+                addSystemMessage("📍 $fromUser shared Monero address: $address")
+                updatePeerMoneroAddress(fromUser, address)
+            },
+            onPaymentRequested = { request ->
+                addSystemMessage("💳 ${request.fromUser} requested ${request.amount} XMR - ${request.reason}")
+            },
+            onPaymentStatusUpdated = { txId, status ->
+                updateTransactionStatus(txId, status)
+            },
+            onTransactionIdReceived = { txIdMsg ->
+                addSystemMessage("🔑 TxID received: ${txIdMsg.txId} for ${txIdMsg.amount} XMR")
+                trackTransactionMessage(txIdMsg.txId, BitchatMessage(
+                    sender = txIdMsg.fromUser,
+                    content = "Transaction ${txIdMsg.txId} received",
+                    timestamp = Date(txIdMsg.timestamp),
+                    isRelay = false
+                ))
+            },
+            onTransactionSearchRequested = { req ->
+                addSystemMessage("🔍 ${req.fromUser} is searching for Tx ${req.txId}")
+                addPendingTransaction(req.txId)
+            }
+        )
+    }
+
+    fun shareMoneroAddressWithPeer(peer: String, address: String) {
+        moneroAddressSentTo.add(peer)
+        sendDirectMessage(peer, "[MONERO_ADDRESS]$address")
+    }
+
     private fun loadAndInitialize() {
         // Load nickname
         val nickname = dataManager.loadNickname()
@@ -327,181 +346,40 @@ class ChatViewModel(
     }
 
     fun initializeWalletSuite(context: Context, listener: WalletSuite.WalletStatusListener) {
-        try {
-            val suite = WalletSuite.getInstance(context).apply {
-                reloadConfiguration() // ensures latest daemon config applied
-                setWalletStatusListener(listener)
-                setTransactionListener(object : WalletSuite.TransactionListener {
-                    override fun onTransactionCreated(txId: String, amount: Long) {
-                        val amountXmr = WalletSuite.convertAtomicToXmr(amount)
-                        addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
-                    }
-                    override fun onTransactionConfirmed(txId: String) {
-                        updateTransactionStatus(txId, "confirmed")
-                        addSystemMessage("✅ Transaction confirmed: $txId")
-                    }
-                    override fun onTransactionFailed(txId: String, error: String) {
-                        updateTransactionStatus(txId, "failed")
-                        addSystemMessage("❌ Transaction failed: $txId - $error")
-                    }
-                    override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
-                        val amountXmr = WalletSuite.convertAtomicToXmr(amount)
-                        val status = if (isConfirmed) "confirmed" else "pending"
-                        addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
-                    }
-                })
-            }
-
-            walletSuite = suite
-
-            // Delegate initialization entirely to WalletSuite
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val success = suite.initializeWallet().get() // wait for Future result
-                    withContext(Dispatchers.Main) {
-                        if (success) {
-                            updateWalletReadyState(true)
-                            updateWalletStatusMessage("Wallet initialized successfully")
-                            
-                            // Get the wallet address from the cached state
-                            val address = suite.getCachedAddress()
-                            if (address != null) {
-                                Log.d(TAG, "Got wallet address from cached state: $address")
-                                updateMyWalletAddress(address)
-                            } else {
-                                // Fallback: request address if not cached
-                                suite.getAddress(object : WalletSuite.AddressCallback {
-                                    override fun onSuccess(address: String) {
-                                        Log.d(TAG, "Got wallet address via fallback: $address")
-                                        updateMyWalletAddress(address)
-                                    }
-                                    override fun onError(error: String) {
-                                        Log.e(TAG, "Failed to get address via fallback: $error")
-                                    }
-                                })
-                            }
-                        } else {
-                            updateWalletReadyState(false)
-                            updateWalletStatusMessage("Wallet initialization failed")
-                            // Don't start retry loop - WalletSuite handles its own retry logic
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Wallet init future failed: ${e.message}")
-                    withContext(Dispatchers.Main) {
-                        updateWalletStatusMessage("Wallet init error: ${e.message}")
-                        updateWalletReadyState(false)
-                    }
+        walletSuite = WalletSuite.getInstance(context).apply {
+            setWalletStatusListener(listener)
+            setTransactionListener(object : WalletSuite.TransactionListener {
+                override fun onTransactionCreated(txId: String, amount: Long) {
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                    addSystemMessage("💰 Transaction created: $amountXmr XMR (tx: $txId)")
                 }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Wallet initialization error: ${e.message}")
-            updateWalletStatusMessage("Wallet init error: ${e.message}")
-            updateWalletReadyState(false)
-        }
-    }
 
-    fun startDaemonRetryLoop(context: Context) {
-        // Cancel any existing loop
-        retryJob?.cancel()
-        retryJob = viewModelScope.launch {
-            while (isActive) {
-                delay(5 * 60 * 1000) // Retry every 5 minutes
-                // Skip if already ready
-                if (isWalletReady) continue
-                Log.w(TAG, "Retrying wallet initialization...")
-                try {
-                    // Reload config & reapply daemon before retry
-                    val suite = WalletSuite.getInstance(context)
-                    suite.reloadConfiguration()
-                    initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
-                        override fun onWalletInitialized(success: Boolean, message: String) {
-                            if (success) {
-                                Log.i(TAG, "Wallet re-initialization succeeded.")
-                                updateWalletReadyState(true)
-                                updateWalletStatusMessage("Wallet connected successfully")
-                                
-                                // Get address after successful retry with proper delay
-                                viewModelScope.launch {
-                                    delay(1000) // Give wallet time to be fully ready
-                                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
-                                        override fun onSuccess(address: String) {
-                                            updateMyWalletAddress(address)
-                                            Log.d(TAG, "Got address on retry: ${address.take(10)}...")
-                                        }
-                                        override fun onError(error: String) {
-                                            updateWalletStatusMessage("Address error on retry: $error")
-                                            Log.e(TAG, "Address error on retry: $error")
-                                            
-                                            // Try one more time after another delay
-                                            viewModelScope.launch {
-                                                delay(2000)
-                                                walletSuite?.getAddress(object : WalletSuite.AddressCallback {
-                                                    override fun onSuccess(address: String) {
-                                                        updateMyWalletAddress(address)
-                                                        Log.d(TAG, "Got address on second retry: ${address.take(10)}...")
-                                                    }
-                                                    override fun onError(error: String) {
-                                                        Log.e(TAG, "Address error on second retry: $error")
-                                                    }
-                                                })
-                                            }
-                                        }
-                                    })
-                                }
-                            } else {
-                                Log.e(TAG, "Wallet initialization failed on retry: $message")
-                                updateWalletReadyState(false)
-                                updateWalletStatusMessage("Retry failed: $message")
-                            }
-                        }
-                        override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
-                            updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
-                        }
-                        override fun onSyncProgress(
-                            height: Long,
-                            startHeight: Long,
-                            targetHeight: Long,
-                            percentDone: Double
-                        ) {
-                            val syncing = percentDone < 100.0
-                            val progress = percentDone.toInt()
-                            updateSyncState(syncing, progress)
-                            if (syncing) {
-                                lastSyncHeight = height
-                                updateWalletStatusMessage("Retry syncing: $progress% ($height/$targetHeight)")
-                            } else {
-                                updateWalletStatusMessage("Wallet synchronized after retry")
-                                
-                                // Get address after sync completes if still null
-                                if (myWalletAddress == null) {
-                                    viewModelScope.launch {
-                                        delay(500)
-                                        walletSuite?.getAddress(object : WalletSuite.AddressCallback {
-                                            override fun onSuccess(address: String) {
-                                                updateMyWalletAddress(address)
-                                                Log.d(TAG, "Got address post-retry-sync: ${address.take(10)}...")
-                                            }
-                                            override fun onError(error: String) {
-                                                Log.e(TAG, "Address error post-retry-sync: $error")
-                                            }
-                                        })
-                                    }
-                                }
-                            }
-                        }
-                    })
-                } catch (e: Exception) {
-                    Log.e(TAG, "Retry attempt failed: ${e.message}")
+                override fun onTransactionConfirmed(txId: String) {
+                    updateTransactionStatus(txId, "confirmed")
+                    addSystemMessage("✅ Transaction confirmed: $txId")
                 }
-            }
-        }
-    }
 
-    fun initializeMoneroMessageHandler(listener: MoneroMessageHandler.MoneroMessageListener) {
-        moneroMessageHandler = MoneroMessageHandler().apply {
-            setMessageListener(listener)
+                override fun onTransactionFailed(txId: String, error: String) {
+                    updateTransactionStatus(txId, "failed")
+                    addSystemMessage("❌ Transaction failed: $txId - $error")
+                }
+
+                override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                    val status = if (isConfirmed) "confirmed" else "pending"
+                    addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
+                }
+            })
+            initializeWallet()
         }
+
+        moneroChatTransferManager = MoneroChatTransferManager(
+            context = context,
+            viewModel = this@ChatViewModel,
+            walletSuite = walletSuite!!,
+            messageHandler = moneroMessageHandler,
+            sendMessageCallback = { content, peerID -> sendDirectMessage(peerID, content) }
+        )
     }
 
     fun updateWalletReadyState(ready: Boolean) {
@@ -521,37 +399,8 @@ class ChatViewModel(
         walletStatusMessage = message
     }
 
-    // FIXED: Consistent key usage for address storage
     fun addPeerMoneroAddress(peer: String, address: String) {
-        Log.d(TAG, "Adding Monero address for peer: $peer -> $address")
         _peerMoneroAddresses.value = _peerMoneroAddresses.value + (peer to address)
-    }
-
-    fun updatePeerMoneroAddress(peerID: String, address: String) {
-        Log.d(TAG, "updatePeerMoneroAddress: peerID: $peerID, address: $address")
-        val updatedMap = _peerMoneroAddresses.value.toMutableMap()
-        updatedMap[peerID] = address
-        _peerMoneroAddresses.value = updatedMap
-    }
-
-    /**
-     * FIXED: Share Monero address with a specific peer during private chat initiation
-     */
-    fun shareMoneroAddressWithPeer(peerID: String, myWalletAddress: String) {
-        Log.d(TAG, "shareMoneroAddressWithPeer called: peerID=$peerID, address=${myWalletAddress.take(10)}...")
-        
-        if (!_moneroAddressSentTo.value.contains(peerID)) {
-            Log.d(TAG, "Actually sending Monero address to peer: $peerID")
-            try {
-                sendDirectMessage(peerID, "[MONERO_ADDRESS]$myWalletAddress")
-                markAddressAsSent(peerID)
-                Log.d(TAG, "Monero address sent successfully to $peerID")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to send Monero address to $peerID: ${e.message}")
-            }
-        } else {
-            Log.d(TAG, "Skipping duplicate Monero address send to $peerID")
-        }
     }
 
     override fun onCleared() {
@@ -627,8 +476,6 @@ class ChatViewModel(
         }
         
         val mentions = messageManager.parseMentions(content, meshService.getPeerNicknames().values.toSet(), state.getNicknameValue())
-        // REMOVED: Auto-join mentioned channels feature that was incorrectly parsing hashtags from @mentions
-        // This was causing messages like "test @jack#1234 test" to auto-join channel "#1234"
         
         var selectedPeer = state.getSelectedPrivateChatPeerValue()
         val currentChannelValue = state.getCurrentChannelValue()
@@ -713,7 +560,26 @@ class ChatViewModel(
     fun getPeerIDForNickname(nickname: String): String? {
         return meshService.getPeerNicknames().entries.find { it.value == nickname }?.key
     }
-        
+    
+    fun String.isHex(): Boolean {
+        return this.matches(Regex("^[0-9a-fA-F]+$"))
+    }
+    
+    fun updatePeerMoneroAddress(peerID: String, address: String) {
+        Log.d(TAG, "updatePeerMoneroAddress: peerID: $peerID, address: $address")
+
+        val updatedMap = _peerMoneroAddresses.value.toMutableMap()        
+        if(peerID.isHex()) {
+            val nick = peerNicknames.value?.get(state.getSelectedPrivateChatPeerValue() ?: "") ?: ""
+            Log.d(TAG, "updatePeerMoneroAddress: nickname: $nick")
+            updatedMap[nick!!] = address
+        } else {
+            updatedMap[peerID] = address
+        }
+        _peerMoneroAddresses.value = updatedMap
+        Log.d(TAG, "updatePeerMoneroAddress: peerMoneroAddresses: ${_peerMoneroAddresses.value}")
+    }
+            
     fun toggleFavorite(peerID: String) {
         Log.d(TAG, "toggleFavorite called for peerID: $peerID")
         privateChatManager.toggleFavorite(peerID)
@@ -817,9 +683,6 @@ class ChatViewModel(
         return meshService.getDebugStatus()
     }
     
-    // Note: Mesh service restart is now handled by MainActivity
-    // This function is no longer needed
-    
     fun setAppBackgroundState(inBackground: Boolean) {
         // Forward to notification manager for notification logic
         notificationManager.setAppBackgroundState(inBackground)
@@ -874,59 +737,12 @@ class ChatViewModel(
     
     // MARK: - BluetoothMeshDelegate Implementation (delegated)
     
-    // FIXED: Message handling to use correct peer identification and reciprocal address sharing
     override fun didReceiveMessage(message: BitchatMessage) {
-        Log.d(TAG, "didReceiveMessage triggered with message: ${message.content}")
-
         // Detect if this is a Monero address broadcast
-        if (message.content.startsWith("[MONERO_ADDRESS]")) {
-            val address = message.content.removePrefix("[MONERO_ADDRESS]")
-            // FIXED: Use consistent key for storing address - prefer senderPeerID over sender nickname
-            val peerKey = message.senderPeerID ?: run {
-                // Fall back to lookup nickname → peerID mapping
-                meshService.getPeerNicknames().entries
-                    .find { it.value == message.sender }
-                    ?.key ?: message.sender
-            }
-            updatePeerMoneroAddress(peerKey, address)
-            Log.d(TAG, "Received Monero address from $peerKey: $address")
-            
-            // FIXED: If we're in a private chat with this peer and have our address, share back automatically
-            if (state.getSelectedPrivateChatPeerValue() == peerKey && isWalletReady) {
-                // Check if we haven't already shared with this peer
-                val alreadyShared = _peerMoneroAddresses.value.containsKey(peerKey)
-                if (!alreadyShared) {
-                    // Get our wallet address and share it back
-                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
-                        override fun onSuccess(myAddress: String) {
-                            shareMoneroAddressWithPeer(peerKey, myAddress)
-                            Log.d(TAG, "Reciprocally shared our address with $peerKey")
-                        }
-                        override fun onError(error: String) {
-                            Log.e(TAG, "Failed to get address for reciprocal sharing: $error")
-                        }
-                    })
-                }
-            }
-        } else if (message.content.startsWith("[REQUEST_MONERO_ADDRESS]")) {
-            // FIXED: Handle address requests using consistent peer identification
-            val requesterPeerID = message.senderPeerID ?: message.sender
-            Log.d(TAG, "Received Monero address request from: $requesterPeerID")
-            
-            // If we have a wallet ready, share our address
-            if (isWalletReady) {
-                walletSuite?.getAddress(object : WalletSuite.AddressCallback {
-                    override fun onSuccess(myAddress: String) {
-                        shareMoneroAddressWithPeer(requesterPeerID, myAddress)
-                        Log.d(TAG, "Responded to address request from $requesterPeerID")
-                    }
-                    override fun onError(error: String) {
-                        Log.e(TAG, "Failed to get address for request response: $error")
-                    }
-                })
-            } else {
-                Log.w(TAG, "Cannot respond to address request - wallet not ready")
-            }
+        if (message.content.startsWith("MY_MONERO_ADDRESS:")) {
+            val address = message.content.removePrefix("MY_MONERO_ADDRESS:")
+            updatePeerMoneroAddress(message.senderPeerID ?: message.sender, address)
+            Log.d(TAG, "Received Monero address from ${message.senderPeerID}: $address")
         } else {
             meshDelegateHandler.didReceiveMessage(message)
         }
@@ -935,8 +751,14 @@ class ChatViewModel(
     override fun didUpdatePeerList(peers: List<String>) {
         meshDelegateHandler.didUpdatePeerList(peers)
         
-        // REMOVED: Automatic sharing with all connected peers
-        // Address sharing now only happens during private chat initiation
+        // Automatically share our Monero address when new peers connect
+        val myMoneroAddress = dataManager.loadMoneroAddress()
+        peers.forEach { peerID ->
+            if (!_peerMoneroAddresses.value.containsKey(peerID)) {
+                meshService.sendMessage("MY_MONERO_ADDRESS:$myMoneroAddress", emptyList(), null)
+                Log.d(TAG, "Shared Monero address with $peerID")
+            }
+        }
     }
     
     override fun didReceiveChannelLeave(channel: String, fromPeer: String) {
@@ -963,8 +785,6 @@ class ChatViewModel(
         return meshDelegateHandler.isFavorite(peerID)
     }
     
-    // registerPeerPublicKey REMOVED - fingerprints now handled centrally in PeerManager
-    
     // MARK: - Emergency Clear
     
     fun panicClearAllData() {
@@ -988,18 +808,12 @@ class ChatViewModel(
         // Clear geohash message history
         nostrGeohashService.clearGeohashMessageHistory()
         
-        // FIXED: Clear Monero addresses
-        _peerMoneroAddresses.value = emptyMap()
-        
         // Reset nickname
         val newNickname = "anon${Random.nextInt(1000, 9999)}"
         state.setNickname(newNickname)
         dataManager.saveNickname(newNickname)
         
         Log.w(TAG, "🚨 PANIC MODE COMPLETED - All sensitive data cleared")
-        
-        // Note: Mesh service restart is now handled by MainActivity
-        // This method now only clears data, not mesh service lifecycle
     }
     
     /**
@@ -1010,9 +824,9 @@ class ChatViewModel(
             // Request mesh service to clear all its internal data
             meshService.clearAllInternalData()
             
-            Log.d(TAG, "✅ Cleared all mesh service data")
+            Log.d(TAG, "✓ Cleared all mesh service data")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error clearing mesh service data: ${e.message}")
+            Log.e(TAG, "✗ Error clearing mesh service data: ${e.message}")
         }
     }
     
@@ -1028,14 +842,14 @@ class ChatViewModel(
             try {
                 val identityManager = com.bitchat.android.identity.SecureIdentityStateManager(getApplication())
                 identityManager.clearIdentityData()
-                Log.d(TAG, "✅ Cleared secure identity state")
+                Log.d(TAG, "✓ Cleared secure identity state")
             } catch (e: Exception) {
                 Log.d(TAG, "SecureIdentityStateManager not available or already cleared: ${e.message}")
             }
             
-            Log.d(TAG, "✅ Cleared all cryptographic data")
+            Log.d(TAG, "✓ Cleared all cryptographic data")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error clearing cryptographic data: ${e.message}")
+            Log.e(TAG, "✗ Error clearing cryptographic data: ${e.message}")
         }
     }
     
@@ -1142,12 +956,10 @@ class ChatViewModel(
         }
     }
     
-    // MARK: - iOS-Compatible Color System
-    
     /**
      * Get consistent color for a mesh peer by ID (iOS-compatible)
      */
-    fun colorForMeshPeer(peerID: String, isDark: Boolean): androidx.compose.ui.graphics.Color {
+    fun colorForMeshPeer(peerID: String, isDark: Boolean): Color {
         // Try to get stable Noise key, fallback to peer ID
         val seed = "noise:${peerID.lowercase()}"
         return colorForPeerSeed(seed, isDark).copy()
@@ -1156,12 +968,9 @@ class ChatViewModel(
     /**
      * Get consistent color for a Nostr pubkey (iOS-compatible)
      */
-    fun colorForNostrPubkey(pubkeyHex: String, isDark: Boolean): androidx.compose.ui.graphics.Color {
+    fun colorForNostrPubkey(pubkeyHex: String, isDark: Boolean): Color {
         return nostrGeohashService.colorForNostrPubkey(pubkeyHex, isDark)
     }
-    
-    // Transaction tracking map
-    private val transactionMessages = mutableMapOf<String, BitchatMessage>()
     
     /**
      * Add system message (for Monero transactions, etc.)
@@ -1271,7 +1080,7 @@ class ChatViewModel(
                 "failed" -> "❌"
                 "pending" -> "⏳"
                 "cancelled" -> "🚫"
-                else -> "⏸️"
+                else -> "ℹ️"
             }
             
             // Create updated message content
@@ -1396,7 +1205,6 @@ class ChatViewModel(
     /**
      * Send a direct message to a specific peer without switching to private chat view
      * This is useful for sending system messages or notifications
-     * FIXED: Uses consistent peer identification for Monero address sharing
      */
     fun sendDirectMessage(peerID: String, content: String) {
         if (content.isEmpty()) return
@@ -1418,4 +1226,148 @@ class ChatViewModel(
             router.sendPrivate(messageContent, targetPeerID, recipientNicknameParam, messageId)
         }
     }
+    
+    /**
+     * Add a transaction to pending searches
+     */
+    fun addPendingTransaction(txId: String) {
+        val current = _pendingTransactionSearches.value.orEmpty()
+        _pendingTransactionSearches.value = current + txId
+    }
+
+    /**
+     * Remove a transaction from pending searches
+     */
+    fun removePendingTransaction(txId: String) {
+        val current = _pendingTransactionSearches.value.orEmpty()
+        _pendingTransactionSearches.value = current - txId
+        Log.d(TAG, "Removed pending transaction: $txId")
+    }
+
+    /**
+     * Set transaction flow mode
+     */
+    fun setTransactionFlowMode(mode: MoneroChatTransferManager.TransactionFlowMode) {
+        moneroChatTransferManager?.setTransactionFlowMode(mode)
+    }
+
+    /**
+     * Manually search for a missing transaction
+     */
+    fun searchForMissingTransaction(txId: String) {
+        Log.d(TAG, "Manual search initiated for TxID: $txId")
+        addSystemMessage("🔍 Searching for transaction: $txId")
+        
+        moneroChatTransferManager?.searchForMissingTransaction(txId) { found ->
+            if (found) {
+                removePendingTransaction(txId)
+            }
+        }
+    }
+
+    /**
+     * Retry all pending transaction searches
+     */
+    fun retryPendingTransactionSearches() {
+        val pending = _pendingTransactionSearches.value?.toList() ?: emptyList()
+        if (pending.isEmpty()) {
+            addSystemMessage("ℹ️ No pending transactions to search for")
+            return
+        }
+        
+        addSystemMessage("🔄 Retrying ${pending.size} pending transaction(s)...")
+        pending.forEach { txId ->
+            searchForMissingTransaction(txId)
+        }
+    }
+
+    /**
+     * Clear a pending transaction
+     */
+    fun clearPendingTransaction(txId: String) {
+        removePendingTransaction(txId)
+        addSystemMessage("🗑️ Cleared pending transaction: $txId")
+    }
+
+    /**
+     * Process incoming messages (including Monero-specific ones)
+     */
+    fun processMessage(message: BitchatMessage) {
+        val content = message.content
+        
+        // Check for TxID message
+        if (content.startsWith("[MONERO_TXID]")) {
+            Log.d(TAG, "Received TxID message from ${message.sender}")
+            val txMessage = MoneroMessageHandler.TransactionIdMessage.createDefault(
+                txId = content,
+                fromUser = message.sender //TODO confirm it must be sender's wallet address
+            )
+
+            moneroChatTransferManager?.handleIncomingTransactionId(
+                txMessage,
+                onSuccess = { Log.d(TAG, "Transaction processed successfully") },
+                onError = { error -> Log.e(TAG, "Error processing transaction: $error") }
+            )
+            return
+        }
+        
+        // Check for transaction found confirmation
+        if (content.startsWith("[MONERO_TX_FOUND]")) {
+            val parts = content.substringAfter("[MONERO_TX_FOUND]").split("|")
+            if (parts.size >= 2) {
+                val txId = parts[0]
+                val confirmations = parts[1]
+                addSystemMessage("✅ ${message.sender} confirmed receipt: $confirmations confirmations")
+                removePendingTransaction(txId)
+            }
+            return
+        }
+        
+        // Check for transaction not found
+        if (content.startsWith("[MONERO_TX_NOT_FOUND]")) {
+            val txId = content.substringAfter("[MONERO_TX_NOT_FOUND]")
+            addSystemMessage("⏳ ${message.sender} hasn't found transaction yet. Will retry.")
+            addPendingTransaction(txId)
+            return
+        }
+        
+        // Continue with existing message processing via mesh delegate handler
+        meshDelegateHandler.didReceiveMessage(message)
+    }
+
+    /**
+     * Start periodic retry timer for pending transactions
+     */
+    fun startPendingTransactionRetryTimer() {
+        viewModelScope.launch {
+            while (true) {
+                delay(60000) // Wait 1 minute
+                
+                val pending = _pendingTransactionSearches.value?.toList() ?: emptyList()
+                if (pending.isNotEmpty()) {
+                    Log.d(TAG, "Auto-retrying ${pending.size} pending transaction(s)")
+                    pending.forEach { txId ->
+                        moneroChatTransferManager?.searchForMissingTransaction(txId) { found ->
+                            if (found) {
+                                removePendingTransaction(txId)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Get consistent color for a peer seed (iOS-compatible)
+     */
+    fun colorForPeerSeed(seed: String, isDark: Boolean): Color {
+        // Simple hash-based color generation for consistent colors
+        val hash = seed.hashCode()
+        val hue = (hash % 360).toFloat()
+        val saturation = 0.7f
+        val lightness = if (isDark) 0.6f else 0.4f
+        
+        return androidx.compose.ui.graphics.Color.hsl(hue, saturation, lightness)
+    }    
 }

@@ -11,6 +11,8 @@ import com.m2049r.xmrwallet.model.PendingTransaction;
 import com.m2049r.xmrwallet.model.Wallet;
 import com.m2049r.xmrwallet.model.WalletListener;
 import com.m2049r.xmrwallet.model.WalletManager;
+import com.m2049r.xmrwallet.model.TransactionHistory;
+import com.m2049r.xmrwallet.model.TransactionInfo;
 import com.m2049r.xmrwallet.util.Helper;
 
 import java.io.BufferedReader;
@@ -128,7 +130,12 @@ public class WalletSuite {
         void onSuccess(String txId, String base64Blob);
         void onError(String error);
     }
-
+    
+    public interface TransactionImportCallback {
+        void onSuccess(String txId);
+        void onError(String error);
+    }
+    
     public static class SyncStatus {
         public final boolean syncing;
         public final long walletHeight;
@@ -1436,4 +1443,421 @@ public class WalletSuite {
     public boolean isReady() {
         return isInitialized && wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal();
     }
+    
+    // Add these new interfaces and methods to your existing WalletSuite.java class
+
+    /**
+     * NEW CALLBACK INTERFACES - Add these to WalletSuite class
+     */
+
+    public interface TransactionCallback {
+        void onSuccess(String txId, long amount);
+        void onError(String error);
+    }
+
+    public interface TransactionSearchCallback {
+        void onTransactionFound(String txId, long amount, long confirmations, long blockHeight);
+        void onTransactionNotFound(String txId);
+        void onError(String error);
+    }
+
+    /**
+     * NEW METHOD 1: Send transaction normally and capture TxID
+     * This implements the new TxID-based flow
+     * 
+     * Add this method to your WalletSuite class:
+     */
+    public void sendTransaction(String destinationAddress, double amountXmr, TransactionCallback callback) {
+        if (!isInitialized || wallet == null) {
+            callback.onError("Wallet not ready");
+            return;
+        }
+        
+        executorService.execute(() -> {
+            try {
+                Log.d(TAG, "=== SEND TRANSACTION (TXID-BASED) ===");
+                Log.d(TAG, "Destination: " + destinationAddress);
+                Log.d(TAG, "Amount: " + amountXmr + " XMR");
+                
+                // Convert XMR to atomic units
+                long amountAtomic = (long) (amountXmr * 1e12);
+                Log.d(TAG, "Amount in atomic units: " + amountAtomic);
+                
+                // Create the transaction
+                PendingTransaction pendingTx = wallet.createTransaction(
+                    destinationAddress,
+                    "", // payment ID (empty for normal transactions)
+                    amountAtomic,
+                    0, // mixin count (0 = default)
+                    PendingTransaction.Priority.Priority_Default.ordinal()
+                );
+                
+                // Check transaction status
+                if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
+                    String error = pendingTx.getErrorString();
+                    Log.e(TAG, "Failed to create transaction: " + error);
+                    mainHandler.post(() -> callback.onError("Transaction creation failed: " + error));
+                    return;
+                }
+                
+                // Commit (broadcast) the transaction
+                boolean committed = pendingTx.commit("", true);
+                if (!committed) {
+                    String error = pendingTx.getErrorString();
+                    Log.e(TAG, "Failed to commit transaction: " + error);
+                    mainHandler.post(() -> callback.onError("Transaction broadcast failed: " + error));
+                    return;
+                }
+                
+                // Get transaction ID
+                String txId = pendingTx.getFirstTxId();
+                long actualAmount = pendingTx.getAmount();
+                long fee = pendingTx.getFee();
+                
+                Log.d(TAG, "Transaction broadcast successfully!");
+                Log.d(TAG, "TxID: " + txId);
+                Log.d(TAG, "Amount: " + actualAmount + " atomic units");
+                Log.d(TAG, "Fee: " + fee + " atomic units");
+                
+                // Store wallet after successful transaction
+                try {
+                    wallet.store(currentWalletPath);
+                    Log.d(TAG, "Wallet stored after transaction");
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to store wallet after transaction", e);
+                }
+                
+                // Refresh wallet to update balance
+                try {
+                    wallet.refresh();
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to refresh wallet after transaction", e);
+                }
+                
+                // Notify success
+                mainHandler.post(() -> callback.onSuccess(txId, actualAmount));
+                
+                // Update balance
+                if (statusListener != null) {
+                    try {
+                        long balance = wallet.getBalance();
+                        long unlockedBalance = wallet.getUnlockedBalance();
+                        mainHandler.post(() -> statusListener.onBalanceUpdated(balance, unlockedBalance));
+                    } catch (Exception e) {
+                        Log.w(TAG, "Failed to update balance after transaction", e);
+                    }
+                }
+                
+            } catch (Exception e) {
+                Log.e(TAG, "Exception in sendTransaction", e);
+                mainHandler.post(() -> callback.onError("Transaction failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * NEW METHOD 2: Search for and import transaction by TxID
+     * This is what the receiver uses when they get a TxID message
+     * 
+     * Add this method to your WalletSuite class:
+     */
+    public void searchAndImportTransaction(String txId, TransactionSearchCallback callback) {
+        if (!isInitialized || wallet == null) {
+            callback.onError("Wallet not ready");
+            return;
+        }
+
+        executorService.execute(() -> {
+            try {
+                Log.d(TAG, "=== SEARCH AND IMPORT TRANSACTION ===");
+                Log.d(TAG, "TxID: " + txId);
+
+                // First, refresh the wallet to get latest transactions
+                Log.d(TAG, "Refreshing wallet to search for transaction...");
+                wallet.refresh();
+
+                // Get transaction history
+                TransactionHistory history = wallet.getHistory();
+                if (history == null) {
+                    Log.w(TAG, "Transaction history is null");
+                    mainHandler.post(() -> callback.onError("Transaction history unavailable"));
+                    return;
+                }
+
+                // Refresh the history to ensure it's up to date
+                history.refresh();
+
+                // Search for the transaction by ID
+                TransactionInfo txInfo = null;
+                for (TransactionInfo info : history.getAll()) {
+                    if (info.hash.equals(txId)) {
+                        txInfo = info;
+                        break;
+                    }
+                }
+
+                if (txInfo != null) {
+                    Log.d(TAG, "Transaction found in wallet history!");
+
+                    try {
+                        long amount = txInfo.amount;
+                        long confirmations = txInfo.confirmations;
+                        long blockHeight = txInfo.blockheight;
+
+                        Log.d(TAG, "Transaction details - " +
+                                "Amount: " + amount +
+                                ", Confirmations: " + confirmations +
+                                ", BlockHeight: " + blockHeight +
+                                ", Incoming: " + txInfo.direction);
+
+                        // Update balance
+                        if (statusListener != null) {
+                            try {
+                                long bal = wallet.getBalance();
+                                long ubal = wallet.getUnlockedBalance();
+                                mainHandler.post(() -> statusListener.onBalanceUpdated(bal, ubal));
+                            } catch (Exception e) {
+                                Log.w(TAG, "Failed to update balance", e);
+                            }
+                        }
+
+                        // Store wallet
+                        try {
+                            wallet.store(currentWalletPath);
+                        } catch (Exception e) {
+                            Log.w(TAG, "Failed to store wallet", e);
+                        }
+
+                        // Notify success
+                        long finalAmount = amount;
+                        long finalConfirmations = confirmations;
+                        long finalBlockHeight = blockHeight;
+                        mainHandler.post(() ->
+                                callback.onTransactionFound(txId, finalAmount, finalConfirmations, finalBlockHeight)
+                        );
+
+                    } catch (Exception e) {
+                        Log.w(TAG, "Error getting transaction details", e);
+                        mainHandler.post(() -> callback.onError("Failed to parse transaction details"));
+                    }
+
+                } else {
+                    Log.d(TAG, "Transaction " + txId + " not found in history");
+                    mainHandler.post(() -> callback.onTransactionNotFound(txId));
+                }
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error searching for transaction", e);
+                mainHandler.post(() -> callback.onError("Search failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * NEW METHOD 3: Manual search for missing transaction
+     * Exposed to UI for user-initiated searches
+     * 
+     * Add this method to your WalletSuite class:
+     */
+    public void searchForMissingTransaction(String txId, TransactionSearchCallback callback) {
+        Log.d(TAG, "=== MANUAL TRANSACTION SEARCH ===");
+        Log.d(TAG, "Searching for TxID: " + txId);
+
+        executorService.execute(() -> {
+            try {
+                // First try normal search
+                searchAndImportTransaction(txId, new TransactionSearchCallback() {
+                    @Override
+                    public void onTransactionFound(String txId, long amount, long confirmations, long blockHeight) {
+                        callback.onTransactionFound(txId, amount, confirmations, blockHeight);
+                    }
+
+                    @Override
+                    public void onTransactionNotFound(String txId) {
+                        Log.d(TAG, "Transaction not found, attempting rescans...");
+
+                        try {
+                            long currentHeight = wallet.getBlockChainHeight();
+                            //long creationHeight = wallet.getCreationHeight();
+
+                            // Progressive scan depths: last 500, last 5000, then from creation height
+                            long[] rescanHeights = new long[] {
+                                Math.max(currentHeight - 500, 0),
+                                Math.max(currentHeight - 5000, 0),
+                                0
+                            };
+
+                            attemptRescanWithFallback(txId, callback, rescanHeights, 0);
+
+                        } catch (Exception e) {
+                            Log.e(TAG, "Error during rescan setup", e);
+                            mainHandler.post(() -> callback.onTransactionNotFound(txId));
+                        }
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        callback.onError(error);
+                    }
+                });
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error in manual search", e);
+                mainHandler.post(() -> callback.onError("Manual search failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void attemptRescanWithFallback(String txId, TransactionSearchCallback callback, long[] rescanHeights, int index) {
+        if (index >= rescanHeights.length) {
+            Log.d(TAG, "All rescans attempted, transaction not found.");
+            mainHandler.post(() -> callback.onTransactionNotFound(txId));
+            return;
+        }
+
+        long rescanHeight = rescanHeights[index];
+        Log.d(TAG, "Rescanning from height: " + rescanHeight);
+
+        wallet.setRefreshFromBlockHeight(rescanHeight);
+        wallet.rescanBlockchainAsync(new Wallet.RescanCallback() {
+            @Override
+            public void onSuccess() {
+                Log.d(TAG, "Rescan complete, searching again...");
+                searchAndImportTransaction(txId, new TransactionSearchCallback() {
+                    @Override
+                    public void onTransactionFound(String txId, long amount, long confirmations, long blockHeight) {
+                        callback.onTransactionFound(txId, amount, confirmations, blockHeight);
+                    }
+
+                    @Override
+                    public void onTransactionNotFound(String txId) {
+                        // Try next fallback rescan
+                        attemptRescanWithFallback(txId, callback, rescanHeights, index + 1);
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        callback.onError(error);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "Rescan failed from height " + rescanHeight + ": " + error);
+                // Try next fallback anyway
+                attemptRescanWithFallback(txId, callback, rescanHeights, index + 1);
+            }
+        });
+    }
+
+    /**
+     * HELPER METHOD: Convert XMR to atomic units
+     * Add this if you don't already have it:
+     */
+    private long convertXmrToAtomic(double xmr) {
+        return (long) (xmr * 1e12);
+    }
+    
+    public void importSignedTransactionBlob(String signedTxBlob, TransactionImportCallback cb) {
+        if (!isInitialized || wallet == null) {
+            cb.onError("Wallet not ready");
+            return;
+        }
+        executorService.execute(() -> {
+            try {
+                // Decode base64 blob
+                byte[] blob = Base64.decode(signedTxBlob, Base64.NO_WRAP);
+                String hex = bytesToHex(blob);
+
+                // Submit the signed transaction
+                String txId = wallet.submitTransaction(hex);
+                if (txId == null || txId.isEmpty()) {
+                    String error = wallet.getErrorString();
+                    mainHandler.post(() -> cb.onError("Import failed: " + (error != null ? error : "Unknown error")));
+                    return;
+                }
+
+                // Refresh wallet after submission
+                try {
+                    wallet.refresh();
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to refresh wallet after import", e);
+                }
+
+                // Notify success
+                mainHandler.post(() -> cb.onSuccess(txId));
+
+            } catch (Exception e) {
+                Log.e(TAG, "Exception in importSignedTransactionBlob", e);
+                mainHandler.post(() -> cb.onError("Import failed: " + e.getMessage()));
+            }
+        });
+    }
+    
+
+    /**
+     * USAGE EXAMPLES:
+     * 
+     * // To send a transaction with TxID flow:
+     * walletSuite.sendTransaction("recipient_address", 0.5, new WalletSuite.TransactionCallback() {
+     *     @Override
+     *     public void onSuccess(String txId, long amount) {
+     *         Log.d(TAG, "Transaction sent! TxID: " + txId);
+     *         // Share txId with receiver
+     *         String message = "[MONERO_TXID]" + txId + "|" + 
+     *                         WalletSuite.convertAtomicToXmr(amount) + "|" +
+     *                         recipientAddress + "|" + System.currentTimeMillis();
+     *         sendDirectMessage(peer, message);
+     *     }
+     *     
+     *     @Override
+     *     public void onError(String error) {
+     *         Log.e(TAG, "Transaction failed: " + error);
+     *     }
+     * });
+     * 
+     * // To search for a received transaction:
+     * walletSuite.searchAndImportTransaction(txId, new WalletSuite.TransactionSearchCallback() {
+     *     @Override
+     *     public void onTransactionFound(String txId, long amount, int confirmations, long blockHeight) {
+     *         Log.d(TAG, "Transaction found: " + WalletSuite.convertAtomicToXmr(amount) + " XMR");
+     *         // Send confirmation back to sender
+     *     }
+     *     
+     *     @Override
+     *     public void onTransactionNotFound(String txId) {
+     *         Log.d(TAG, "Transaction not found yet");
+     *         // Add to pending for retry
+     *     }
+     *     
+     *     @Override
+     *     public void onError(String error) {
+     *         Log.e(TAG, "Search error: " + error);
+     *     }
+     * });
+     * 
+     * // To manually search for a missing transaction:
+     * walletSuite.searchForMissingTransaction(txId, callback);
+     */
+
+    /**
+     * IMPORTANT NOTES:
+     * 
+     * 1. The Monerujo wallet API has limitations - it doesn't provide a direct
+     *    getTransactionById() method, so we work with getTransactionHistory()
+     *    which returns a string representation.
+     * 
+     * 2. For production use, you may want to enhance the transaction parsing
+     *    to extract more accurate details (amount, confirmations, etc.)
+     * 
+     * 3. The searchAndImportTransaction method relies on wallet.refresh() to
+     *    pull in new transactions. This may take a few seconds.
+     * 
+     * 4. Consider implementing retry logic with exponential backoff for
+     *    transactions that aren't found immediately.
+     * 
+     * 5. The rescan in searchForMissingTransaction rescans the last 100 blocks.
+     *    Adjust this based on your needs.
+     */    
 }

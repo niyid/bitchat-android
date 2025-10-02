@@ -55,7 +55,7 @@ public class Wallet {
 
     /* --- instance fields --- */
     boolean synced = false;
-    private int accountIndex = 0;
+    public int accountIndex = 0;
     private String lastErrorString = null;
     private long handle;
     private long listenerHandle;
@@ -105,7 +105,6 @@ public class Wallet {
     public native long getRefreshFromBlockHeight();
     public native void setRestoreHeight(long height);
     public native long getRestoreHeight();
-    public native void refreshHistory();
 
     public native Device getDeviceType();
     public native boolean setDeviceType(Device device);
@@ -122,7 +121,6 @@ public class Wallet {
     public native PendingTransaction createSweepTransaction(String dstAddr, String paymentId, int mixinCount, int priority, int accountIndex);
     public native PendingTransaction createSweepUnmixableTransaction();
     public native void disposeTransaction(PendingTransaction pendingTransaction);
-    public native TransactionHistory getHistory();
     public native boolean setUserNote(String txid, String note);
     public native String getUserNote(String txid);
     public native String getTxKey(String txid);
@@ -199,9 +197,25 @@ public class Wallet {
     public native void setLogLevel(int level);
     public native void setLogCategories(String categories);
 
+    private native long getHistoryJ();
+
     /* ---------------------------------------------------------------------
      * Convenience wrappers
      * ------------------------------------------------------------------ */
+
+    private TransactionHistory history = null;
+
+    public TransactionHistory getHistory() {
+        if (history == null) {
+            history = new TransactionHistory(getHistoryJ(), accountIndex);
+        }
+        return history;
+    }
+
+    public void refreshHistory() {
+        getHistory().refreshWithNotes(this);
+    }     
+     
     public int getStatus() {
         return getStatusJ();
     }
