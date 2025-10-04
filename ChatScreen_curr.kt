@@ -294,9 +294,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 viewModel = viewModel                        
             )
             
-            val canReceiveMonero = selectedPrivatePeer != null && 
-                       isWalletReady && 
-                       peerMoneroAddresses.containsKey(selectedPrivatePeer)
+            val canReceiveMonero by remember(
+                selectedPrivatePeer,
+                isWalletReady,
+                peerMoneroAddresses
+            ) {
+                derivedStateOf {
+                    selectedPrivatePeer != null &&
+                    isWalletReady &&
+                    peerMoneroAddresses.containsKey(selectedPrivatePeer)
+                }
+            }
 
             SideEffect {
                 Log.d(TAG, "canReceiveMonero=$canReceiveMonero for peer=$selectedPrivatePeer")
@@ -382,7 +390,8 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 isWalletReady = isWalletReady
             )
         }
-        
+
+        // Floating header with Monero wallet info
         ChatFloatingHeader(
             headerHeight = headerHeight,
             selectedPrivatePeer = selectedPrivatePeer,
@@ -394,15 +403,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
             onShowAppInfo = { viewModel.showAppInfo() },
             onPanicClear = { viewModel.panicClearAllData() },
             onLocationChannelsClick = { showLocationChannelsSheet = true },
-            onTransactionSearchClick = { showTransactionSearchDialog = true },
-            onPendingTransactionsClick = { showPendingTransactionsSheet = true },
+            // Monero wallet info
             isWalletReady = isWalletReady,
             currentBalance = currentBalance,
             walletStatusMessage = walletStatusMessage,
             isSyncing = isSyncing,
-            syncProgress = syncProgress,
-            pendingCount = pendingTransactions.size
-        )        
+            syncProgress = syncProgress
+        )
 
         // Divider under header
         HorizontalDivider(
@@ -832,15 +839,12 @@ private fun ChatFloatingHeader(
     onShowAppInfo: () -> Unit,
     onPanicClear: () -> Unit,
     onLocationChannelsClick: () -> Unit,
-    onTransactionSearchClick: () -> Unit,  
-    onPendingTransactionsClick: () -> Unit,  
     // Monero wallet parameters
     isWalletReady: Boolean,
     currentBalance: String,
     walletStatusMessage: String,
     isSyncing: Boolean,
-    syncProgress: Int,
-    pendingCount: Int  
+    syncProgress: Int
 ) {
     Surface(
         modifier = Modifier
@@ -867,11 +871,7 @@ private fun ChatFloatingHeader(
                         onSidebarClick = onSidebarToggle,
                         onTripleClick = onPanicClear,
                         onShowAppInfo = onShowAppInfo,
-                        onLocationChannelsClick = onLocationChannelsClick,
-                        onTransactionSearchClick = onTransactionSearchClick,  
-                        onPendingTransactionsClick = onPendingTransactionsClick,  
-                        isWalletReady = isWalletReady,  
-                        pendingCount = pendingCount  
+                        onLocationChannelsClick = onLocationChannelsClick
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

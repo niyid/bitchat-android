@@ -52,9 +52,6 @@ fun SidebarOverlay(
     
     val pendingTransactions by viewModel.pendingTransactionSearches.observeAsState(emptySet<String>())
 
-    var showTransactionSearchDialog by remember { mutableStateOf(false) }
-    var showPendingTransactionsSheet by remember { mutableStateOf(false) }    
-
     Box(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.5f))
@@ -145,45 +142,10 @@ fun SidebarOverlay(
                             }
                         }
                     }
-                    
-                    item {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    }
-                    
-                    item {
-                        MoneroToolsSection(
-                            pendingCount = pendingTransactions.size,
-                            onSearchClick = {
-                                showTransactionSearchDialog = true
-                                onDismiss()
-                            },
-                            onPendingClick = {
-                                showPendingTransactionsSheet = true
-                                onDismiss()
-                            }
-                        )
-                    }
                 }
             }
         }
     }
-
-    TransactionSearchDialog(
-        isVisible = showTransactionSearchDialog,
-        onDismiss = { showTransactionSearchDialog = false },
-        onSearch = { txId ->
-            viewModel.searchForMissingTransaction(txId)
-        }
-    )
-
-    PendingTransactionsSheet(
-        isPresented = showPendingTransactionsSheet,
-        onDismiss = { showPendingTransactionsSheet = false },
-        pendingTransactions = pendingTransactions,
-        onRetryAll = { viewModel.retryPendingTransactionSearches() },
-        onRetryOne = { txId -> viewModel.searchForMissingTransaction(txId) },
-        onClearOne = { txId -> viewModel.clearPendingTransaction(txId) }
-    )    
 }
 
 @Composable
