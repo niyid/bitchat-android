@@ -235,7 +235,11 @@ fun ChatHeaderContent(
     onSidebarClick: () -> Unit,
     onTripleClick: () -> Unit,
     onShowAppInfo: () -> Unit,
-    onLocationChannelsClick: () -> Unit
+    onLocationChannelsClick: () -> Unit,
+    onTransactionSearchClick: (() -> Unit)? = null,
+    onPendingTransactionsClick: (() -> Unit)? = null,
+    isWalletReady: Boolean = false,
+    pendingCount: Int = 0
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -269,7 +273,11 @@ fun ChatHeaderContent(
                 selectedLocationChannel = selectedLocationChannel,
                 geohashPeople = geohashPeople,
                 onBackClick = onBackClick,
-                onToggleFavorite = { viewModel.toggleFavorite(selectedPrivatePeer) }
+                onToggleFavorite = { viewModel.toggleFavorite(selectedPrivatePeer) },
+                onTransactionSearchClick = onTransactionSearchClick,
+                onPendingTransactionsClick = onPendingTransactionsClick,
+                isWalletReady = isWalletReady,
+                pendingCount = pendingCount
             )
         }
         currentChannel != null -> {
@@ -305,7 +313,11 @@ private fun PrivateChatHeader(
     selectedLocationChannel: com.bitchat.android.geohash.ChannelID?,
     geohashPeople: List<GeoPerson>,
     onBackClick: () -> Unit,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onTransactionSearchClick: (() -> Unit)? = null,
+    onPendingTransactionsClick: (() -> Unit)? = null,
+    isWalletReady: Boolean = false,
+    pendingCount: Int = 0
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val isNostrDM = peerID.startsWith("nostr_") || peerID.startsWith("nostr:")
@@ -408,20 +420,74 @@ private fun PrivateChatHeader(
 
         }
         
-        // Favorite button - positioned on the right
-        IconButton(
-            onClick = {
-                Log.d("ChatHeader", "Header toggle favorite: peerID=$peerID, currentFavorite=$isFavorite")
-                onToggleFavorite()
-            },
-            modifier = Modifier.align(Alignment.CenterEnd)
+        // Right side buttons
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy((-4).dp) // Tighter spacing
         ) {
-            Icon(
-                imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
-                contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                modifier = Modifier.size(18.dp), // Slightly larger than sidebar icon
-                tint = if (isFavorite) Color(0xFFFFD700) else Color(0x87878700) // Yellow or grey
-            )
+            // Pending transactions button with badge
+            if (pendingCount > 0 && onPendingTransactionsClick != null) {
+                Box {
+                    IconButton(
+                        onClick = onPendingTransactionsClick,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassEmpty,
+                            contentDescription = "Pending transactions",
+                            modifier = Modifier.size(18.dp),
+                            tint = Color(0xFFFF9800)
+                        )
+                    }
+                    
+                    // Badge with count
+                    Badge(
+                        containerColor = Color(0xFFFF9800),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = 4.dp)
+                    ) {
+                        Text(
+                            text = pendingCount.toString(),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+            
+            // Transaction search button (only show if wallet ready and callback provided)
+            if (isWalletReady && onTransactionSearchClick != null) {
+                IconButton(
+                    onClick = onTransactionSearchClick,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search transaction",
+                        modifier = Modifier.size(18.dp),
+                        tint = colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            
+            // Favorite button
+            IconButton(
+                onClick = {
+                    Log.d("ChatHeader", "Header toggle favorite: peerID=$peerID, currentFavorite=$isFavorite")
+                    onToggleFavorite()
+                },
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Filled.Star else Icons.Outlined.Star,
+                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+                    modifier = Modifier.size(18.dp),
+                    tint = if (isFavorite) Color(0xFFFFD700) else Color(0x87878700) // Yellow or grey
+                )
+            }
         }
     }
 }

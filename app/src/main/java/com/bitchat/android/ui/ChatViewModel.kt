@@ -750,15 +750,6 @@ class ChatViewModel(
     
     override fun didUpdatePeerList(peers: List<String>) {
         meshDelegateHandler.didUpdatePeerList(peers)
-        
-        // Automatically share our Monero address when new peers connect
-        val myMoneroAddress = dataManager.loadMoneroAddress()
-        peers.forEach { peerID ->
-            if (!_peerMoneroAddresses.value.containsKey(peerID)) {
-                meshService.sendMessage("MY_MONERO_ADDRESS:$myMoneroAddress", emptyList(), null)
-                Log.d(TAG, "Shared Monero address with $peerID")
-            }
-        }
     }
     
     override fun didReceiveChannelLeave(channel: String, fromPeer: String) {
