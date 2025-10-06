@@ -363,9 +363,6 @@ public class WalletSuite {
                                 statusListener.onBalanceUpdated(balance, unlocked);
                             }
 
-                            // NEW: Sum up both balances once synced. 
-                            //This is hacked as wallet.getBalance and wallet.getUnlockedBalance() are not functioning
-                            calculateFinalBalancesAfterSync();
                         }
                     } else {
                         Log.d(TAG, "⏰ Skipping periodic sync - wallet not ready (initialized=" +
@@ -538,6 +535,9 @@ public class WalletSuite {
             if (statusListener != null) {
                 double percent = daemonHeight > 0 ? (100.0 * walletHeight / daemonHeight) : 100.0;
                 Log.d(TAG, "Notifying status listener: " + String.format("%.2f", percent) + "% complete");
+                
+                //This is hacked as wallet.getBalance and wallet.getUnlockedBalance() are not functioning
+                calculateFinalBalancesAfterSync();                
                 statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, percent);
                 statusListener.onBalanceUpdated(balance, unlocked);
             }
