@@ -193,6 +193,7 @@ public class Wallet {
     public static native long getMaximumAllowedAmount();
     public static native void printConnections();
     public static native boolean isKeyImageSpent(String keyImage);
+    private native boolean isWatchOnly();
 
     public native void setLogLevel(int level);
     public native void setLogCategories(String categories);
@@ -202,6 +203,10 @@ public class Wallet {
     /* ---------------------------------------------------------------------
      * Convenience wrappers
      * ------------------------------------------------------------------ */
+     
+    public boolean isReadOnly() {
+        return isWatchOnly();
+    }     
 
     private TransactionHistory history = null;
 
