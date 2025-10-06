@@ -45,10 +45,10 @@ public class WalletManager {
         this.walletName = props.getProperty("wallet.name", "bitchat_wallet");
         this.walletPassword = props.getProperty("wallet.password", "bitchat_secure_pass");
         this.walletLanguage = props.getProperty("wallet.language", "English");
-        this.daemonAddress = props.getProperty("daemon.address", "10.112.145.244");
+        this.daemonAddress = props.getProperty("daemon.address", "stagenet.xmr-tw.org");
         this.daemonPort = Integer.parseInt(props.getProperty("daemon.port", "38081"));
-        this.daemonUsername = props.getProperty("daemon.username", "rpc_user");
-        this.daemonPassword = props.getProperty("daemon.password", "rpc_password");
+        this.daemonUsername = props.getProperty("daemon.username", "");
+        this.daemonPassword = props.getProperty("daemon.password", "");
         int netInt = Integer.parseInt(props.getProperty("network.type", "2")); // default stagenet
         this.networkType = fromInt(netInt);
         this.forceSsl = Boolean.parseBoolean(props.getProperty("daemon.ssl", "false"));

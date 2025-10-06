@@ -1,6 +1,7 @@
 package com.bitchat.android.monero.wallet;
 
 import android.content.Context;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
@@ -22,10 +23,12 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Properties;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -37,25 +40,22 @@ public class WalletSuite {
     private static volatile boolean nativeOk = false;
     private static volatile boolean nativeChecked = false;
     private static volatile WalletSuite instance;
-    private static final int SYNC_TIMEOUT_MS = 500000;
-    private static final int STUCK_THRESHOLD = 100;
-    private static final int MAX_REFRESH_RETRIES = 3;
-    private static final int BASE_TIMEOUT_MS = 120000;
-    private static final int MAX_TIMEOUT_MS = 600000;
-
-    private volatile long syncStartTime;
-    private volatile long lastSyncHeight = -1;
+    
+    // Periodic sync settings
+    private static final long PERIODIC_SYNC_INTERVAL_MS = 300000; // 5 minutes
+    private static final int SINGLE_SYNC_TIMEOUT_MS = 120000; // 2 minutes per sync
+    
     private volatile long lastKnownDaemonHeight = -1;
-    private volatile boolean rescanAttempted = false;
-    private volatile int stuckCounter = 0;
-    private volatile int refreshRetryCount = 0;
     private volatile boolean syncCompleted = false;
     private volatile boolean walletPersisted = false;
     private volatile WalletListener currentListener;
-    private volatile long lastActivityTime = 0;
     private volatile String currentWalletPath;
     private final Object syncLock = new Object();
     private final Object persistLock = new Object();
+    
+    // Periodic sync scheduler
+    private ScheduledExecutorService periodicSyncScheduler;
+    private ScheduledFuture<?> periodicSyncTask;
 
     private volatile Wallet wallet;
     private final WalletManager walletManager;
@@ -68,10 +68,22 @@ public class WalletSuite {
 
     private volatile WalletStatusListener statusListener;
     private volatile TransactionListener transactionListener;
-
+    private volatile DaemonConfigCallback daemonConfigCallback;
+    
+    private long balance = 0L;
+    private long unlocked = 0L;
+    
+    public enum InitStatus {
+        OK,
+        READ_ONLY,
+        KEYS_MISSING,
+        NET_MISMATCH,
+        ERROR
+    }
+    
     public interface WalletStatusListener {
         void onWalletInitialized(boolean success, String message);
-        void onBalanceUpdated(long balance, long unlockedBalance);
+        void onBalanceUpdated(long balance, long unlocked);
         void onSyncProgress(long height, long startHeight, long endHeight, double percentDone);
     }
 
@@ -88,31 +100,11 @@ public class WalletSuite {
     }
 
     public interface BalanceCallback {
-        void onSuccess(long balance, long unlockedBalance);
-        void onError(String error);
-    }
-
-    public interface SendCallback {
-        void onSuccess(String txId, long amount, long fee);
+        void onSuccess(long balance, long unlocked);
         void onError(String error);
     }
 
     public interface SyncCallback {
-        void onSuccess(String message);
-        void onError(String error);
-    }
-
-    public interface SeedCallback {
-        void onSuccess(String seedPhrase);
-        void onError(String error);
-    }
-
-    public interface SyncInfoCallback {
-        void onSuccess(long walletHeight, long daemonHeight, boolean isSynced);
-        void onError(String error);
-    }
-
-    public interface TransactionHistoryCallback {
         void onSuccess(String message);
         void onError(String error);
     }
@@ -157,8 +149,6 @@ public class WalletSuite {
         void onConfigError(String error);
     }
 
-    private volatile DaemonConfigCallback daemonConfigCallback;
-
     public void setDaemonConfigCallback(DaemonConfigCallback callback) {
         this.daemonConfigCallback = callback;
     }
@@ -166,6 +156,7 @@ public class WalletSuite {
     private WalletSuite(Context context) {
         this.context = context.getApplicationContext();
         this.executorService = Executors.newSingleThreadExecutor();
+        this.periodicSyncScheduler = Executors.newSingleThreadScheduledExecutor();
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.walletManager = WalletManager.getInstance();
         loadConfiguration();
@@ -248,16 +239,6 @@ public class WalletSuite {
             }
         }
     }
-
-    private int getDynamicSyncTimeout(int blocksPerSecond) {
-        if (blocksPerSecond <= 1) {
-            return MAX_TIMEOUT_MS;
-        } else if (blocksPerSecond < 20) {
-            return 300000;
-        } else {
-            return BASE_TIMEOUT_MS;
-        }
-    }
     
     private long getDaemonHeightViaHttp() {
         HttpURLConnection conn = null;
@@ -319,136 +300,140 @@ public class WalletSuite {
     
     public void close() {
         Log.d(TAG, "Close called - beginning shutdown sequence");
+        stopPeriodicSync();
         stopSync();
         closeWalletSync();
 
+        periodicSyncScheduler.shutdown();
         executorService.shutdown();
         try {
             if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
                 Log.w(TAG, "Executor service did not terminate in time, forcing shutdown");
                 executorService.shutdownNow();
             }
+            if (!periodicSyncScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                periodicSyncScheduler.shutdownNow();
+            }
         } catch (InterruptedException ie) {
             executorService.shutdownNow();
+            periodicSyncScheduler.shutdownNow();
             Thread.currentThread().interrupt();
         }
         Log.d(TAG, "Shutdown sequence completed");
     }
 
-    private void startSyncWhenReady() {
-        Log.d(TAG, "Checking if wallet is ready for sync...");
-
-        executorService.execute(() -> {
-            int maxRetries = 20;
-            int retries = 0;
-
-            while (retries < maxRetries) {
-                if (isWalletReadyForSync()) {
-                    Log.d(TAG, "Wallet is ready for sync after " + retries + " checks");
-                    mainHandler.post(this::startSync);
-                    return;
-                } else {
-                    Log.d(TAG, "Wallet not ready for sync, retrying... (" + retries + "/" + maxRetries + ")");
-                    try {
-                        Thread.sleep(500);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        Log.w(TAG, "Interrupted while waiting for wallet readiness");
-                        return;
-                    }
-                    retries++;
-                }
-            }
-
-            Log.e(TAG, "Wallet failed to become ready for sync after " + maxRetries + " attempts");
-        });
-    }
-
-    private boolean isWalletReadyForSync() {
-        if (wallet == null) {
-            Log.d(TAG, "Wallet readiness check failed: wallet is null");
-            return false;
-        }
-
-        if (!isInitialized) {
-            Log.d(TAG, "Wallet readiness check failed: not initialized");
-            return false;
-        }
-
-        if (isSyncing) {
-            Log.d(TAG, "Wallet readiness check failed: already syncing");
-            return false;
-        }
-
-        try {
-            int status = wallet.getStatus();
-            if (status != Wallet.Status.Status_Ok.ordinal()) {
-                Log.d(TAG, "Wallet readiness check failed: status=" + status);
-                return false;
-            }
-
-            String address = wallet.getAddress();
-            if (address == null || address.isEmpty()) {
-                Log.d(TAG, "Wallet readiness check failed: invalid address");
-                return false;
-            }
-
-            long daemonHeight = getDaemonHeightViaHttp();
-            if (daemonHeight <= 0) {
-                Log.d(TAG, "Wallet readiness check failed: daemon not responding (height=" + daemonHeight + ")");
-                return false;
-            }
-
-            Log.d(TAG, "Wallet readiness check: current height=" + wallet.getBlockChainHeight() + ", daemon height=" + daemonHeight);
-            Log.d(TAG, "Wallet readiness check passed");
-            return true;
-
-        } catch (Exception e) {
-            Log.d(TAG, "Wallet readiness check failed with exception: " + e.getMessage());
-            return false;
-        }
-    }
-
-    private void startSync() {
+    private void startPeriodicSync() {
         synchronized (syncLock) {
-            Log.d(TAG, "Starting wallet sync...");
+            if (periodicSyncTask != null && !periodicSyncTask.isDone()) {
+                Log.d(TAG, "Periodic sync already running");
+                return;
+            }
+
+            Log.i(TAG, "=== STARTING PERIODIC SYNC SCHEDULER ===");
+            Log.d(TAG, "Sync interval: " + (PERIODIC_SYNC_INTERVAL_MS / 1000) + " seconds (" +
+                    (PERIODIC_SYNC_INTERVAL_MS / 60000) + " minutes)");
+
+            periodicSyncTask = periodicSyncScheduler.scheduleWithFixedDelay(() -> {
+                try {
+                    if (isInitialized && !isSyncing) {
+                        Log.i(TAG, "⏰ Periodic sync triggered");
+                        performSingleSync();
+
+                        // Check sync completion after each single sync
+                        long walletHeight = wallet.getBlockChainHeight();
+                        long daemonHeight = walletManager.getBlockchainHeight();
+                        double percentDone = (daemonHeight > 0)
+                                ? (walletHeight * 100.0) / daemonHeight
+                                : 0.0;
+
+                        Log.d(TAG, String.format(Locale.US,
+                                "Sync check after performSingleSync: walletHeight=%d, daemonHeight=%d, percent=%.2f%%",
+                                walletHeight, daemonHeight, percentDone));
+
+                        if (percentDone >= 99.9) {
+                            balance = wallet.getBalance();
+                            unlocked = wallet.getUnlockedBalance();
+
+                            Log.i(TAG, "Wallet appears fully synced - fetching balances");
+                            Log.d(TAG, "Balance: " + balance + " (atomic), Unlocked: " + unlocked + " (atomic)");
+                            Log.d(TAG, "Balance XMR: " + convertAtomicToXmr(balance) +
+                                       " | Unlocked XMR: " + convertAtomicToXmr(unlocked));
+
+                            if (statusListener != null) {
+                                statusListener.onBalanceUpdated(balance, unlocked);
+                            }
+
+                            // NEW: Sum up both balances once synced. 
+                            //This is hacked as wallet.getBalance and wallet.getUnlockedBalance() are not functioning
+                            calculateFinalBalancesAfterSync();
+                        }
+                    } else {
+                        Log.d(TAG, "⏰ Skipping periodic sync - wallet not ready (initialized=" +
+                                isInitialized + ", syncing=" + isSyncing + ")");
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error in periodic sync task", e);
+                }
+            }, PERIODIC_SYNC_INTERVAL_MS, PERIODIC_SYNC_INTERVAL_MS, TimeUnit.MILLISECONDS);
+
+            Log.i(TAG, "✓ Periodic sync scheduler started");
+        }
+    }
+
+    
+    private void stopPeriodicSync() {
+        synchronized (syncLock) {
+            if (periodicSyncTask != null) {
+                periodicSyncTask.cancel(false);
+                periodicSyncTask = null;
+                Log.i(TAG, "✓ Periodic sync scheduler stopped");
+            }
+        }
+    }
+
+    private void performSingleSync() {
+        synchronized (syncLock) {
+            if (isSyncing) {
+                Log.d(TAG, "Sync already in progress, skipping");
+                return;
+            }
+            
+            Log.d(TAG, "=== STARTING SINGLE SYNC OPERATION ===");
             isSyncing = true;
             syncCompleted = false;
-            walletPersisted = false;
-            syncStartTime = System.currentTimeMillis();
-            lastSyncHeight = -1;
-            stuckCounter = 0;
-            refreshRetryCount = 0;
-            lastActivityTime = System.currentTimeMillis();
         }
 
         executorService.execute(() -> {
+            Log.d(TAG, "Validating daemon connection...");
             if (!validateDaemonConnection()) {
+                Log.e(TAG, "Daemon validation failed");
                 mainHandler.post(() -> handleSyncError("Daemon connection validation failed"));
                 return;
             }
             
-            mainHandler.post(this::setupSyncListenerAndStart);
+            Log.d(TAG, "Daemon validation successful, proceeding to sync");
+            mainHandler.post(this::executeSingleSync);
         });
     }
 
-    private void setupSyncListenerAndStart() {
+    private void executeSingleSync() {
         try {
+            Log.d(TAG, "=== SETTING UP SYNC LISTENER ===");
+            
             if (currentListener != null && wallet != null) {
+                Log.d(TAG, "Removing previous listener");
                 wallet.setListener(null);
             }
 
             currentListener = new WalletListener() {
                 @Override
                 public void moneySent(String txId, long amount) {
-                    Log.d(TAG, "moneySent: txId=" + txId + " amount=" + amount);
-                    updateSyncActivity();
+                    Log.d(TAG, "[LISTENER] moneySent: txId=" + txId + " amount=" + amount);
                 }
 
                 @Override
                 public void moneyReceived(String txId, long amount) {
-                    Log.d(TAG, "moneyReceived: txId=" + txId + " amount=" + amount);
-                    updateSyncActivity();
+                    Log.d(TAG, "[LISTENER] moneyReceived: txId=" + txId + " amount=" + amount);
                     if (transactionListener != null) {
                         mainHandler.post(() -> transactionListener.onOutputReceived(amount, txId, false));
                     }
@@ -456,361 +441,143 @@ public class WalletSuite {
 
                 @Override
                 public void unconfirmedMoneyReceived(String txId, long amount) {
-                    Log.d(TAG, "unconfirmedMoneyReceived: txId=" + txId + " amount=" + amount);
-                    updateSyncActivity();
+                    Log.d(TAG, "[LISTENER] unconfirmedMoneyReceived: txId=" + txId + " amount=" + amount);
                 }
 
                 @Override
                 public void newBlock(long height) {
-                    Log.d(TAG, "newBlock: height=" + height);
-                    updateSyncActivity();
-                    checkAndCompleteSyncIfReady();
+                    Log.d(TAG, "[LISTENER] newBlock: height=" + height);
                 }
 
                 @Override
                 public void updated() {
-                    Log.d(TAG, "Wallet updated callback");
-                    updateSyncActivity();
-                    checkAndCompleteSyncIfReady();
+                    Log.d(TAG, "[LISTENER] Wallet updated callback");
                 }
 
                 @Override
                 public void refreshed() {
-                    Log.d(TAG, "Wallet refreshed callback");
-                    updateSyncActivity();
-                    checkAndCompleteSyncIfReady();
-
-                    if (!shouldContinueSync()) {
-                        Log.w(TAG, "Sync timeout detected in refreshed()");
-                        mainHandler.post(() -> restartSync());
-                        return;
-                    }
-
-                    if (!syncCompleted && refreshRetryCount < MAX_REFRESH_RETRIES) {
-                        scheduleNextRefresh();
-                    }
+                    Log.d(TAG, "[LISTENER] Wallet refreshed callback - sync complete");
+                    completeSingleSync();
                 }
             };
 
             wallet.setListener(currentListener);
-            logDetailedWalletStatus();
+            Log.d(TAG, "✓ Sync listener attached");
+
+            // Schedule timeout for this sync
+            Log.d(TAG, "Scheduling sync timeout (" + SINGLE_SYNC_TIMEOUT_MS + "ms)");
+            mainHandler.postDelayed(() -> {
+                if (isSyncing) {
+                    Log.w(TAG, "⚠ Single sync timeout reached");
+                    completeSingleSync();
+                }
+            }, SINGLE_SYNC_TIMEOUT_MS);
 
             executorService.execute(() -> {
                 try {
-                    Log.d(TAG, "=== STARTING SYNC SEQUENCE ===");
+                    long startTime = System.currentTimeMillis();
+                    Log.d(TAG, "=== PERFORMING SYNCHRONOUS REFRESH ===");
                     
-                    Log.d(TAG, "Step 1: Starting initial synchronous refresh...");
-                    long refreshStartTime = System.currentTimeMillis();
+                    long heightBefore = wallet.getBlockChainHeight();
+                    Log.d(TAG, "Wallet height before refresh: " + heightBefore);
+                    
                     wallet.refresh();
-                    long refreshDuration = System.currentTimeMillis() - refreshStartTime;
                     
-                    Log.d(TAG, "Synchronous refresh completed in " + refreshDuration + "ms");
+                    long duration = System.currentTimeMillis() - startTime;
+                    long heightAfter = wallet.getBlockChainHeight();
+                    Log.d(TAG, "Synchronous refresh completed in " + duration + "ms");
+                    Log.d(TAG, "Wallet height after refresh: " + heightAfter + " (+" + (heightAfter - heightBefore) + " blocks)");
                     
-                    Log.d(TAG, "Step 2: Waiting 500ms before starting async refresh...");
-                    Thread.sleep(500);
+                    mainHandler.post(() -> completeSingleSync());
                     
-                    Log.d(TAG, "Step 3: Starting async refresh on main thread...");
-                    mainHandler.post(() -> {
-                        synchronized (syncLock) {
-                            if (!isSyncing) {
-                                Log.d(TAG, "Sync already completed during initial refresh, skipping async refresh");
-                                return;
-                            }
-                            if (wallet == null) {
-                                Log.w(TAG, "Wallet is null, cannot start async refresh");
-                                return;
-                            }
-                        }
-                        
-                        try {
-                            Log.d(TAG, "Calling wallet.refreshAsync()...");
-                            wallet.refreshAsync();
-                            Log.d(TAG, "Async refresh started successfully");
-                            Log.d(TAG, "=== SYNC SEQUENCE COMPLETED ===");
-                            
-                            scheduleProgressUpdates();
-                            scheduleSyncTimeout();
-                            
-                        } catch (Exception e) {
-                            Log.e(TAG, "Failed to start async refresh", e);
-                            handleSyncError("Async refresh failed: " + e.getMessage());
-                        }
-                    });
-                    
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    Log.e(TAG, "Sync interrupted during setup", e);
-                    mainHandler.post(() -> handleSyncError("Sync interrupted: " + e.getMessage()));
                 } catch (Exception e) {
-                    Log.e(TAG, "Synchronous refresh failed", e);
-                    mainHandler.post(() -> handleSyncError("Initial sync failed: " + e.getMessage()));
+                    Log.e(TAG, "✗ Sync failed with exception", e);
+                    mainHandler.post(() -> completeSingleSync());
                 }
             });
 
         } catch (Exception e) {
-            Log.e(TAG, "Exception during sync setup", e);
-            handleSyncError("Sync setup failed: " + e.getMessage());
+            Log.e(TAG, "✗ Exception during sync setup", e);
+            completeSingleSync();
         }
     }
 
-    private void updateSyncActivity() {
+    private void completeSingleSync() {
         synchronized (syncLock) {
-            stuckCounter = 0;
-            lastActivityTime = System.currentTimeMillis();
-        }
-    }
-
-    private void checkAndCompleteSyncIfReady() {
-        synchronized (syncLock) {
-            if (syncCompleted || !isSyncing) {
+            if (!isSyncing) {
+                Log.d(TAG, "Sync already completed, skipping");
                 return;
             }
-
-            try {
-                long walletHeight = wallet.getBlockChainHeight();
-                long daemonHeight = getDaemonHeightViaHttp();
-
-                if (daemonHeight > 0 && walletHeight >= daemonHeight) {
-                    syncCompleted = true;
-                    Log.d(TAG, "Sync target reached: wallet=" + walletHeight + " daemon=" + daemonHeight);
-                    completeSyncSuccess();
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Error checking sync completion status", e);
-            }
+            
+            Log.d(TAG, "=== COMPLETING SINGLE SYNC ===");
+            isSyncing = false;
+            syncCompleted = true;
         }
-    }
 
-    private void completeSyncSuccess() {
-        Log.d(TAG, "Sync completed successfully");
-
-        long balance = 0;
-        long unlockedBalance = 0;
+        long walletHeight = 0;
+        long daemonHeight = 0;
 
         try {
             balance = wallet.getBalance();
-            unlockedBalance = wallet.getUnlockedBalance();
-            Log.d(TAG, "Current Balance: " + balance + " atomic units");
-            Log.d(TAG, "Unlocked Balance: " + unlockedBalance + " atomic units");
-        } catch (Exception e) {
-            Log.e(TAG, "Error retrieving balance for logging", e);
-        }
-
-        synchronized (syncLock) {
-            isSyncing = false;
-        }
-
-        if (statusListener != null) {
-            try {
-                long walletHeight = wallet.getBlockChainHeight();
-                long daemonHeight = getDaemonHeightViaHttp();
-                statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, 100.0);
-                statusListener.onBalanceUpdated(balance, unlockedBalance);
-                Log.d(TAG, "onBalanceUpdated() called with balance=" + balance
-                        + " unlocked=" + unlockedBalance);
-            } catch (Exception e) {
-                Log.e(TAG, "Error in success callback", e);
-            }
-        }
-
-        // ALWAYS persist the successful sync state first
-        persistWalletSafely();
-        Log.d(TAG, "Wallet state persisted after successful sync");
-
-        // Only then, if balance is 0, attempt rescan
-        if (balance == 0 && unlockedBalance == 0 && !rescanAttempted) {
-            rescanAttempted = true;
-            Log.w(TAG, "Balance is 0 after sync, scheduling rescan...");
-
-            // Create atomic flag to track rescan state
-            final AtomicBoolean rescanInProgress = new AtomicBoolean(true);
+            unlocked = wallet.getUnlockedBalance();
+            walletHeight = wallet.getBlockChainHeight();
+            daemonHeight = getDaemonHeightViaHttp();
             
-            // Start monitoring thread
-            executorService.execute(() -> {
-                Log.d(TAG, "Rescan monitor thread started");
-                long lastHeight = 0;
-                int noChangeCount = 0;
-                
-                while (rescanInProgress.get()) {
-                    try {
-                        Thread.sleep(5000); // Check every 5 seconds
-                        
-                        if (wallet != null) {
-                            long currentHeight = wallet.getBlockChainHeight();
-                            long currentBalance = wallet.getBalance();
-                            
-                            if (currentHeight != lastHeight) {
-                                Log.d(TAG, "RESCAN PROGRESS: height=" + currentHeight 
-                                        + ", balance=" + currentBalance);
-                                lastHeight = currentHeight;
-                                noChangeCount = 0;
-                            } else {
-                                noChangeCount++;
-                                if (noChangeCount > 6) { // 30 seconds with no change
-                                    Log.w(TAG, "RESCAN: No height change for 30 seconds - might be stuck");
-                                }
-                            }
-                        }
-                    } catch (InterruptedException e) {
-                        Log.d(TAG, "Rescan monitor interrupted");
-                        break;
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error in rescan monitor", e);
-                    }
-                }
-                
-                Log.d(TAG, "Rescan monitor thread stopped");
-            });
-
-            // Start actual rescan
-            executorService.execute(() -> {
-                Log.d(TAG, "Rescan runnable STARTED on thread: " + Thread.currentThread().getName());
-                
-                try {
-                    // Verify wallet is still valid before rescanning
-                    if (wallet == null || !isInitialized) {
-                        Log.w(TAG, "Cannot rescan: wallet is null or not initialized");
-                        rescanInProgress.set(false);
-                        return;
-                    }
-                    
-                    int status = wallet.getStatus();
-                    Log.d(TAG, "Wallet status: " + status);
-                    
-                    if (status != Wallet.Status.Status_Ok.ordinal()) {
-                        Log.w(TAG, "Cannot rescan: wallet status is not OK: " + status);
-                        rescanInProgress.set(false);
-                        return;
-                    }
-                    
-                    long currentRestoreHeight = wallet.getRestoreHeight();
-                    long safeStartHeight = Math.max(currentRestoreHeight - 1000, 0);
-                    
-                    Log.d(TAG, "Setting restore height from " + currentRestoreHeight 
-                            + " to " + safeStartHeight);
-                    wallet.setRestoreHeight(safeStartHeight);
-                    
-                    Log.d(TAG, "Starting rescanBlockchainAsync...");
-                    long rescanStartTime = System.currentTimeMillis();
-                    
-                    wallet.rescanBlockchainAsync(new Wallet.RescanCallback() {
-                        @Override
-                        public void onSuccess() {
-                            rescanInProgress.set(false);
-                            long rescanDuration = System.currentTimeMillis() - rescanStartTime;
-                            
-                            Log.d(TAG, "=== RESCAN COMPLETED SUCCESSFULLY in " 
-                                    + (rescanDuration / 1000) + " seconds ===");
-                            
-                            try {
-                                if (wallet == null) {
-                                    Log.w(TAG, "Rescan complete but wallet is null");
-                                    return;
-                                }
-                                
-                                long b = wallet.getBalance();
-                                long ub = wallet.getUnlockedBalance();
-                                long height = wallet.getBlockChainHeight();
-                                
-                                Log.d(TAG, "Rescan results: height=" + height 
-                                        + ", balance=" + b + ", unlocked=" + ub);
-                                
-                                // Persist again after successful rescan
-                                persistWalletSafely();
-                                Log.d(TAG, "Wallet state persisted after rescan");
-                                
-                                mainHandler.post(() -> {
-                                    if (statusListener != null) {
-                                        statusListener.onBalanceUpdated(b, ub);
-                                        Log.d(TAG, "onBalanceUpdated() called after rescan");
-                                    }
-                                });
-                            } catch (Exception e) {
-                                Log.e(TAG, "Error in rescan success callback", e);
-                            }
-                        }
-
-                        @Override
-                        public void onError(String error) {
-                            rescanInProgress.set(false);
-                            Log.e(TAG, "=== RESCAN FAILED: " + error + " ===");
-                        }
-                    });
-                    
-                    Log.d(TAG, "rescanBlockchainAsync() called, waiting for callback...");
-                    
-                } catch (Exception e) {
-                    rescanInProgress.set(false);
-                    Log.e(TAG, "Exception during rescan setup", e);
-                }
-            });
+            double balanceXmr = balance / 1e12;
+            double unlockedXmr = unlocked / 1e12;
+            
+            Log.d(TAG, "=== SYNC RESULTS ===");
+            Log.d(TAG, "Wallet height: " + walletHeight);
+            Log.d(TAG, "Daemon height: " + daemonHeight);
+            Log.d(TAG, "Balance: " + balance + " atomic units (" + String.format("%.12f", balanceXmr) + " XMR)");
+            Log.d(TAG, "Unlocked: " + unlocked + " atomic units (" + String.format("%.12f", unlockedXmr) + " XMR)");
+            
+            boolean synced = (daemonHeight > 0 && walletHeight >= daemonHeight);
+            Log.d(TAG, "Fully synced: " + synced);
+            
+            if (statusListener != null) {
+                double percent = daemonHeight > 0 ? (100.0 * walletHeight / daemonHeight) : 100.0;
+                Log.d(TAG, "Notifying status listener: " + String.format("%.2f", percent) + "% complete");
+                statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, percent);
+                statusListener.onBalanceUpdated(balance, unlocked);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "✗ Error retrieving sync results", e);
         }
-    }
 
+        // Persist wallet state
+        Log.d(TAG, "Persisting wallet state...");
+        persistWalletSafely();
+        
+        Log.d(TAG, "=== SYNC OPERATION COMPLETE ===");
+    }
+ 
     private void persistWalletSafely() {
         executorService.execute(() -> {
             synchronized (persistLock) {
-                if (walletPersisted) {
-                    Log.d(TAG, "Wallet already persisted, skipping");
-                    return;
-                }
-
-                if (wallet == null) {
-                    Log.w(TAG, "Cannot persist wallet - wallet is null");
-                    return;
-                }
-
-                if (!isInitialized) {
-                    Log.w(TAG, "Cannot persist wallet - not initialized");
+                if (wallet == null || !isInitialized) {
+                    Log.d(TAG, "Cannot persist: wallet=" + (wallet != null) + ", initialized=" + isInitialized);
                     return;
                 }
 
                 try {
-                    int status = wallet.getStatus();
-                    if (status != Wallet.Status.Status_Ok.ordinal()) {
-                        Log.w(TAG, "Cannot persist wallet - invalid status: " + status);
-                        return;
-                    }
-
-                    String address = wallet.getAddress();
-                    if (address == null || address.isEmpty()) {
-                        Log.w(TAG, "Cannot persist wallet - invalid address");
-                        return;
-                    }
-
                     String walletPath = wallet.getPath();
-                    if (walletPath == null || walletPath.isEmpty()) {
-                        Log.w(TAG, "Cannot persist wallet - no valid internal path");
-                        return;
-                    }
-
-                    Log.d(TAG, "Persisting wallet with status=" + status +
-                            ", address=" + address.substring(0, Math.min(10, address.length())) + "..." +
-                            ", path=" + walletPath);
-
-                    boolean stored = wallet.store(walletPath);
-                    if (stored) {
-                        walletPersisted = true;
-                        Log.d(TAG, "Wallet data persisted successfully to: " + walletPath);
-                    } else {
-                        String error = wallet.getErrorString();
-                        Log.e(TAG, "Wallet store(path) returned false. Path: " + walletPath +
-                                ", Error: " + (error != null ? error : "unknown"));
-                    }
-
-                } catch (Exception e) {
-                    Log.e(TAG, "Exception during wallet persistence: " + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
-
-                    try {
-                        if (wallet != null) {
-                            String walletPath = wallet.getPath();
-                            Log.e(TAG, "Wallet state during error - Status: " + wallet.getStatus() +
-                                    ", Error: " + wallet.getErrorString() +
-                                    ", Path: " + walletPath);
+                    Log.d(TAG, "Persisting wallet to: " + walletPath);
+                    
+                    if (walletPath != null && !walletPath.isEmpty()) {
+                        boolean stored = wallet.store(walletPath);
+                        if (stored) {
+                            walletPersisted = true;
+                            Log.i(TAG, "✓ Wallet persisted successfully");
+                        } else {
+                            String error = wallet.getErrorString();
+                            Log.w(TAG, "✗ Wallet store returned false: " + (error != null ? error : "unknown error"));
                         }
-                    } catch (Exception statusEx) {
-                        Log.e(TAG, "Could not get wallet status during error handling", statusEx);
+                    } else {
+                        Log.w(TAG, "✗ Cannot persist: wallet path is null or empty");
                     }
+                } catch (Exception e) {
+                    Log.e(TAG, "✗ Exception during wallet persistence", e);
                 }
             }
         });
@@ -823,145 +590,28 @@ public class WalletSuite {
                 return false;
             }
 
+            Log.d(TAG, "Checking daemon connection...");
             long daemonHeight = getDaemonHeightViaHttp();
+            
             if (daemonHeight <= 0) {
-                Log.w(TAG, "Daemon height is invalid: " + daemonHeight);
+                Log.w(TAG, "Daemon validation failed: invalid height (" + daemonHeight + ")");
                 return false;
             }
 
-            String daemonAddress = walletManager.getDaemonAddress();
-            if (daemonAddress == null || daemonAddress.isEmpty()) {
-                Log.w(TAG, "Daemon address is not set");
-                return false;
-            }
-
-            Log.d(TAG, "Daemon connection validated: height=" + daemonHeight + ", address=" + daemonAddress);
+            Log.i(TAG, "✓ Daemon connection validated: height=" + daemonHeight);
             return true;
 
         } catch (Exception e) {
-            Log.e(TAG, "Daemon validation failed with exception", e);
+            Log.e(TAG, "✗ Daemon validation failed with exception", e);
             return false;
         }
-    }
-
-    private boolean shouldContinueSync() {
-        synchronized (syncLock) {
-            long now = System.currentTimeMillis();
-            return (now - lastActivityTime) <= SYNC_TIMEOUT_MS;
-        }
-    }
-
-    private void scheduleNextRefresh() {
-        synchronized (syncLock) {
-            refreshRetryCount++;
-        }
-
-        mainHandler.postDelayed(() -> {
-            if (wallet != null && isSyncing) {
-                Log.d(TAG, "Continuing refresh (retry " + refreshRetryCount + ")");
-                try {
-                    wallet.refreshAsync();
-                } catch (Exception e) {
-                    Log.e(TAG, "Error scheduling next refresh", e);
-                    handleSyncError("Refresh error: " + e.getMessage());
-                }
-            }
-        }, 2000);
-    }
-
-    private final Runnable syncTimeoutRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (isSyncing) {
-                Log.w(TAG, "Sync timeout reached, restarting");
-                restartSync();
-            }
-        }
-    };
-
-    private void scheduleSyncTimeout() {
-        synchronized (syncLock) {
-            lastActivityTime = System.currentTimeMillis();
-        }
-
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
-        mainHandler.postDelayed(syncTimeoutRunnable, SYNC_TIMEOUT_MS);
-    }
-
-    private void scheduleProgressUpdates() {
-        mainHandler.postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                if (!isSyncing || wallet == null) return;
-
-                try {
-                    long walletHeight = wallet.getBlockChainHeight();
-                    long daemonHeight = getDaemonHeightViaHttp();
-
-                    synchronized (syncLock) {
-                        if (walletHeight == lastSyncHeight) {
-                            stuckCounter++;
-                            if (stuckCounter >= STUCK_THRESHOLD) {
-                                Log.w(TAG, "Sync appears stuck at height " + walletHeight +
-                                        " for " + stuckCounter + " updates, restarting");
-                                restartSync();
-                                return;
-                            }
-                        } else {
-                            stuckCounter = 0;
-                            lastSyncHeight = walletHeight;
-                        }
-                    }
-
-                    double percent = (daemonHeight > 0)
-                            ? (100.0 * walletHeight / daemonHeight)
-                            : 0.0;
-
-                    Log.d(TAG, "Progress update: " + walletHeight + "/" +
-                            daemonHeight + " (" + String.format("%.1f", percent) + "%) " +
-                            "stuck=" + stuckCounter);
-
-                    if (statusListener != null) {
-                        statusListener.onSyncProgress(walletHeight, walletHeight,
-                                daemonHeight, percent);
-                    }
-
-                    mainHandler.postDelayed(this, 2000);
-
-                } catch (Exception e) {
-                    Log.e(TAG, "Error in progress update", e);
-                    handleSyncError("Progress update failed: " + e.getMessage());
-                }
-            }
-        }, 2000);
-    }
-
-    private void restartSync() {
-        Log.d(TAG, "Restarting sync...");
-        stopSync();
-
-        executorService.execute(() -> {
-            boolean success = setDaemonFromConfigAndApply();
-            mainHandler.post(() -> {
-                if (success) {
-                    Log.d(TAG, "Daemon reconnected successfully, restarting sync");
-                    mainHandler.postDelayed(() -> startSyncWhenReady(), 1000);
-                } else {
-                    Log.e(TAG, "Failed to reconnect to daemon during restart");
-                    handleSyncError("Failed to reconnect to daemon");
-                }
-            });
-        });
     }
 
     private void stopSync() {
         synchronized (syncLock) {
             isSyncing = false;
             syncCompleted = false;
-            walletPersisted = false;
         }
-
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
 
         if (wallet != null && currentListener != null) {
             try {
@@ -978,40 +628,9 @@ public class WalletSuite {
         Log.e(TAG, "Sync error: " + error);
         stopSync();
 
-        mainHandler.removeCallbacks(syncTimeoutRunnable);
-
         if (statusListener != null) {
             mainHandler.post(() -> statusListener.onWalletInitialized(false, error));
         }
-
-        if (daemonConfigCallback != null) {
-            mainHandler.post(() -> daemonConfigCallback.onConfigError(error));
-        }
-    }
-
-    private void logDetailedWalletStatus() {
-        Log.d(TAG, "=== Detailed Wallet Status ===");
-        if (wallet != null) {
-            try {
-                int status = wallet.getStatus();
-                Log.d(TAG, "Status: " + status + " (" + Wallet.Status.values()[status] + ")");
-
-                long currentHeight = wallet.getBlockChainHeight();
-                Log.d(TAG, "Wallet height: " + currentHeight);
-
-                long daemonHeight = getDaemonHeightViaHttp();
-                Log.d(TAG, "Daemon height: " + daemonHeight);
-
-                String daemonAddress = walletManager.getDaemonAddress();
-                Log.d(TAG, "Daemon address: " + daemonAddress);
-
-                Log.d(TAG, "Network type: " + walletManager.getNetworkType());
-
-            } catch (Exception e) {
-                Log.w(TAG, "Error logging detailed wallet status", e);
-            }
-        }
-        Log.d(TAG, "=============================");
     }
 
     public boolean isSyncing() {
@@ -1115,152 +734,164 @@ public class WalletSuite {
 
         executorService.execute(() -> {
             try {
+                Log.d(TAG, "=== WALLET INITIALIZATION STARTED ===");
+                String walletName = walletManager.getWalletName();
+                Log.d(TAG, "Wallet name: " + walletName);
+
+                // Step 1: Check for wallet backup on SD card
+                File sdcardDir = new File(Environment.getExternalStorageDirectory(),
+                        "Android/data/com.bitchat.droid/files");
+                Log.d(TAG, "Checking SD card directory: " + sdcardDir.getAbsolutePath());
+                Log.d(TAG, "SD card directory exists: " + sdcardDir.exists());
+                
+                File backupFile = new File(sdcardDir, walletName);
+                File backupKeysFile = new File(sdcardDir, walletName + ".keys");
+                File backupAddressFile = new File(sdcardDir, walletName + ".address.txt");
+                Log.d(TAG, "Backup base file: " + backupFile.getAbsolutePath());
+
+                // Step 2: Determine target directory
                 File dir = context.getDir("wallets", Context.MODE_PRIVATE);
+                Log.d(TAG, "Wallets directory: " + dir.getAbsolutePath());
                 if (!dir.exists() && !dir.mkdirs()) {
+                    Log.e(TAG, "CRITICAL: Cannot create wallets directory");
                     notifyWalletInitialized(false, "Cannot create wallets dir");
                     future.complete(false);
                     return;
                 }
 
-                String walletPath = new File(dir, walletManager.getWalletName()).getAbsolutePath();
+                String walletPath = new File(dir, walletName).getAbsolutePath();
                 currentWalletPath = walletPath;
+
+                // Step 3: Copy wallet and rename old backups
+                if (backupFile.exists()) {
+                    Log.i(TAG, "=== RESTORING WALLET FROM SD CARD ===");
+                    try {
+                        File destWalletFile = new File(walletPath);
+                        Files.copy(backupFile.toPath(), destWalletFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        Log.i(TAG, "✓ Main wallet file copied");
+                        File bakWalletFile = new File(sdcardDir, walletName + ".bak");
+                        Files.move(backupFile.toPath(), bakWalletFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        Log.i(TAG, "✓ Original wallet file renamed to .bak");
+                    } catch (Exception ex) {
+                        Log.e(TAG, "✗ Wallet copy/rename failed", ex);
+                    }
+
+                    if (backupKeysFile.exists()) {
+                        try {
+                            File destKeysFile = new File(walletPath + ".keys");
+                            Files.copy(backupKeysFile.toPath(), destKeysFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            File bakKeysFile = new File(sdcardDir, walletName + ".keys.bak");
+                            Files.move(backupKeysFile.toPath(), bakKeysFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            Log.i(TAG, "✓ Keys file copied and renamed to .bak");
+                        } catch (Exception ex) {
+                            Log.e(TAG, "✗ Keys copy/rename failed", ex);
+                        }
+                    }
+
+                    if (backupAddressFile.exists()) {
+                        try {
+                            File destAddressFile = new File(walletPath + ".address.txt");
+                            Files.copy(backupAddressFile.toPath(), destAddressFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            File bakAddrFile = new File(sdcardDir, walletName + ".address.txt.bak");
+                            Files.move(backupAddressFile.toPath(), bakAddrFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                            Log.i(TAG, "✓ Address file copied and renamed to .bak");
+                        } catch (Exception ex) {
+                            Log.e(TAG, "✗ Address copy/rename failed", ex);
+                        }
+                    }
+
+                    Log.i(TAG, "=== WALLET RESTORATION COMPLETE ===");
+                } else {
+                    Log.d(TAG, "No backup found on SD card; continuing with existing or new wallet");
+                }
+
+                // Step 4: Open or create wallet
                 File keysFile = new File(walletPath + ".keys");
+                Log.d(TAG, "Keys file exists: " + keysFile.exists());
 
                 if (keysFile.exists()) {
-                    Log.d(TAG, "Opening existing wallet at " + walletPath);
+                    Log.i(TAG, "=== OPENING EXISTING WALLET ===");
                     wallet = walletManager.openWallet(walletPath);
                 } else {
-                    Log.d(TAG, "Creating new wallet at " + walletPath);
+                    Log.i(TAG, "=== CREATING NEW WALLET ===");
                     wallet = walletManager.createWallet(walletPath);
                 }
 
                 if (wallet == null) {
+                    Log.e(TAG, "CRITICAL: Wallet is null after open/create attempt");
                     notifyWalletInitialized(false, "JNI returned null wallet");
                     future.complete(false);
                     return;
                 }
 
+                // Step 5: Initialize daemon connection
+                Log.d(TAG, "=== INITIALIZING DAEMON CONNECTION ===");
                 try {
                     Node node = walletManager.createNodeFromConfig();
+                    Log.d(TAG, "Node config: " + node.displayProperties());
+
                     long handle = wallet.initJ(
-                            node.getAddress(),
-                            0,
-                            node.getUsername(),
-                            node.getPassword(),
-                            node.isSsl(),
-                            false,
-                            ""
+                            node.getAddress(), 0,
+                            node.getUsername(), node.getPassword(),
+                            node.isSsl(), false, ""
                     );
-                    Log.d(TAG, "Wallet initJ returned handle=" + handle);
-
+                    Log.d(TAG, "initJ handle: " + handle);
                     if (handle == 0) {
-                        Log.e(TAG, "initJ failed, falling back to setDaemonFromConfigAndApply()");
-                        setDaemonFromConfigAndApply();
-                    } else {
-                        node = walletManager.createNodeFromConfig();
-                        walletManager.setNetworkType(node.getNetworkType());
+                        Log.w(TAG, "initJ returned 0, applying fallback daemon setup");
+                        boolean daemonSet = walletManager.setDaemonAddress(node.getAddress());
+                        Log.d(TAG, "Fallback daemon setup result: " + daemonSet);
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "initJ threw exception, falling back to setDaemonFromConfigAndApply()", e);
-                    setDaemonFromConfigAndApply();
+                    Log.e(TAG, "Exception during daemon init", e);
+                    boolean daemonSet = walletManager.setDaemonAddress(walletManager.getDaemonAddress());
+                    Log.d(TAG, "Fallback daemon setup result: " + daemonSet);
                 }
 
+                // Step 6: Status check
                 int status = wallet.getStatus();
-                String errorStr = wallet.getErrorString();
-                if (errorStr == null) errorStr = "<empty>";
-
-                Log.d(TAG, "Wallet status: " + status + " (" + Wallet.Status.values()[status] + ")");
-                Log.d(TAG, "Wallet error string: " + errorStr);
-
-                try {
-                    long daemonHeight = getDaemonHeightViaHttp();
-                    if (daemonHeight > 0) {
-                        Log.d(TAG, "Daemon connection test successful (height: " + daemonHeight + ")");
-                    } else {
-                        Log.w(TAG, "Daemon connection test failed");
-                    }
-
-                    walletAddress = wallet.getAddress();
-                    Log.d(TAG, "Wallet address: " + wallet.getAddress());
-                    Log.d(TAG, "Wallet seed language: " + wallet.getSeedLanguage());
-                    Log.d(TAG, "Wallet restore height: " + wallet.getRestoreHeight());
-                    Log.d(TAG, "Wallet blockchain height: " + wallet.getBlockChainHeight());
-                    Log.d(TAG, "Daemon blockchain height: " + getDaemonHeightViaHttp());
-                    Log.d(TAG, "Daemon: " + walletManager.getDaemonAddress() + ":" + walletManager.getDaemonPort());
-                    Log.d(TAG, "Network type: " + walletManager.getNetworkType());
-                } catch (Exception e) {
-                    Log.w(TAG, "Unable to fetch wallet metadata: " + e.getMessage());
-                }
-
-                if (status == Wallet.Status.Status_Ok.ordinal()) {
-                    setupWallet();
-
-                    long daemonHeight = getDaemonHeightViaHttp();
-                    boolean daemonConnected = daemonHeight > 0;
-
-                    if (!daemonConnected) {
-                        Log.w(TAG, "Daemon connection test failed (height: " + daemonHeight + ")");
-                        if (daemonConfigCallback != null) {
-                            mainHandler.post(() -> daemonConfigCallback.onConfigNeeded());
-                            future.complete(false);
-                            return;
-                        }
-                    } else {
-                        Log.d(TAG, "Daemon connection test successful (height: " + daemonHeight + ")");
-                    }
-
-                    isInitialized = true;
-                    notifyWalletInitialized(true, "Wallet initialized");
-
-                    long initBal = wallet.getBalance();
-                    long initUb = wallet.getUnlockedBalance();
-                    Log.d(TAG, "Initial wallet state: balance=" + initBal + " atomic units, unlocked=" + initUb + " atomic units");
-                    if (initBal == 0 && initUb == 0) {
-                        Log.d(TAG, "Initial balances are zero - rescan will be triggered after sync if balances remain zero");
-                    }
-
-                    startSyncWhenReady();
-                    future.complete(true);
+                String statusName = (status < Wallet.Status.values().length)
+                        ? Wallet.Status.values()[status].name() : "UNKNOWN";
+                Log.d(TAG, "Wallet status: " + statusName + " (" + status + ")");
+                if (status != Wallet.Status.Status_Ok.ordinal()) {
+                    notifyWalletInitialized(false, "Init failed: " + statusName);
+                    future.complete(false);
                     return;
                 }
 
-                notifyWalletInitialized(false,
-                        "Init failed: status=" + status + " err=" + errorStr);
-
-                if (status == Wallet.Status.Status_Critical.ordinal()) {
-                    Log.w(TAG, "Wallet status is CRITICAL. Backing up wallet files for path " + walletPath);
-
-                    safeMove(new File(walletPath));
-                    safeMove(new File(walletPath + ".keys"));
-                    safeMove(new File(walletPath + ".address.txt"));
-
-                    wallet = walletManager.createWallet(walletPath);
-                    if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
-                        setupWallet();
-                        isInitialized = true;
-                        notifyWalletInitialized(true, "Wallet recreated successfully");
-                        startSyncWhenReady();
-                        future.complete(true);
-                        return;
-                    } else {
-                        Log.e(TAG, "Wallet recreation also failed");
-                    }
+                // Step 7: Check read-only flag
+                boolean isReadOnly = false;
+                try {
+                    isReadOnly = wallet.isReadOnly();
+                } catch (Throwable t) {
+                    Log.w(TAG, "Cannot determine read-only state", t);
+                }
+                if (isReadOnly) {
+                    Log.w(TAG, "⚠️ Wallet opened in read-only mode");
+                    notifyWalletInitialized(true, "Read-only wallet");
+                } else {
+                    notifyWalletInitialized(true, "Wallet initialized OK");
                 }
 
-                future.complete(false);
+                // Step 8: Metadata
+                try {
+                    walletAddress = wallet.getAddress();
+                    Log.i(TAG, "Wallet address: " + walletAddress);
+                    Log.d(TAG, "Height=" + wallet.getBlockChainHeight() + ", Restore=" + wallet.getRestoreHeight());
+                } catch (Exception e) {
+                    Log.w(TAG, "Metadata fetch failed", e);
+                }
+
+                // Step 9: Sync
+                performSingleSync();
+                startPeriodicSync();
+
+                isInitialized = true;
+                future.complete(true);
+                Log.i(TAG, "✓ WALLET INITIALIZATION COMPLETE");
 
             } catch (Exception e) {
-                Log.e(TAG, "Exception during wallet init", e);
+                Log.e(TAG, "✗ Exception during wallet init", e);
                 notifyWalletInitialized(false, "Error: " + e.getMessage());
-
-                if (e.getMessage() != null &&
-                        (e.getMessage().contains("daemon") ||
-                                e.getMessage().contains("connection") ||
-                                e.getMessage().contains("network")) &&
-                        daemonConfigCallback != null) {
-                    mainHandler.post(() -> daemonConfigCallback.onConfigNeeded());
-                }
-
                 future.completeExceptionally(e);
             }
         });
@@ -1269,50 +900,108 @@ public class WalletSuite {
     }
 
     public void initializeWalletFromSeed(String seed, long restoreHeight, int requestedNetType) {
-        int netType = (requestedNetType >= 0) ? requestedNetType : walletManager.getNetworkType().ordinal();
         executorService.execute(() -> {
             try {
+                Log.i(TAG, "=== RESTORING WALLET FROM SEED ===");
+                Log.d(TAG, "Restore height: " + restoreHeight);
+                
                 String walletPath = getWalletPath();
                 currentWalletPath = walletPath;
+                Log.d(TAG, "Wallet path: " + walletPath);
+                
                 wallet = walletManager.recoveryWallet(walletPath, seed, restoreHeight);
+                Log.d(TAG, "Recovery wallet returned: " + (wallet != null));
+                
                 if (wallet != null && wallet.getStatus() == Wallet.Status.Status_Ok.ordinal()) {
+                    Log.i(TAG, "✓ Wallet restored successfully");
+                    
                     setupWallet();
                     isInitialized = true;
                     notifyWalletInitialized(true, "Wallet restored");
 
-                    long initBal = wallet.getBalance();
-                    long initUb = wallet.getUnlockedBalance();
-                    Log.d(TAG, "Initial restored wallet state: balance=" + initBal + " atomic units, unlocked=" + initUb + " atomic units");
-                    if (initBal == 0 && initUb == 0) {
-                        Log.d(TAG, "Initial balances are zero after restore - rescan will be triggered after sync if balances remain zero");
-                    }
-
-                    startSyncWhenReady();
+                    performSingleSync();
+                    startPeriodicSync();
                 } else {
                     String error = (wallet != null) ? wallet.getErrorString() : "JNI error";
+                    Log.e(TAG, "✗ Wallet restoration failed: " + error);
                     notifyWalletInitialized(false, "Restore failed: " + error);
                 }
             } catch (Exception e) {
+                Log.e(TAG, "✗ Exception during wallet restoration", e);
                 notifyWalletInitialized(false, "Error: " + e.getMessage());
             }
         });
     }
-
-    private void safeMove(File f) {
-        try {
-            if (f.exists()) {
-                File dest = new File(f.getAbsolutePath() + ".bak");
-                if (!f.renameTo(dest)) {
-                    Log.w(TAG, "Could not move " + f.getAbsolutePath() + " → " + dest.getAbsolutePath());
+    
+    /**
+     * Rebuilds wallet balances by scanning all transactions.
+     * Used when JNI-reported balances are unreliable or inconsistent.
+     */
+    public void calculateFinalBalancesAfterSync() {
+        executorService.execute(() -> {
+            try {
+                if (wallet == null) {
+                    Log.w(TAG, "calculateFinalBalancesAfterSync called but wallet is null");
+                    return;
                 }
-            } else {
-                Log.w(TAG, "File does not exist: " + f.getAbsolutePath());
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Error moving " + f.getAbsolutePath() + ": " + e.getMessage());
-        }
-    }
 
+                Log.i(TAG, "=== STARTING TRANSACTION-BASED BALANCE RECONSTRUCTION ===");
+
+                List<TransactionInfo> transactions = wallet.getHistory().getAll();
+                if (transactions == null || transactions.isEmpty()) {
+                    Log.w(TAG, "No transactions found — reconstructed balance = 0");
+                    balance = 0L;
+                    unlocked = 0L;
+
+                    if (statusListener != null) {
+                        statusListener.onBalanceUpdated(balance, unlocked);
+                    }
+                    return;
+                }
+
+                long totalAtomic = 0L;
+                long unlockedAtomic = 0L;
+
+                for (TransactionInfo tx : transactions) {
+                    long amount = tx.amount;
+                    boolean incoming = tx.direction == TransactionInfo.Direction.Direction_In;
+                    boolean confirmed = tx.confirmations > 0;
+
+                    Log.d(TAG, String.format(Locale.US,
+                            "TX %s | incoming=%s | confirmed=%s | amount=%d (%s XMR)",
+                            tx.hash, incoming, confirmed, amount, convertAtomicToXmr(amount)));
+
+                    if (incoming) {
+                        totalAtomic += amount;
+                        if (confirmed) unlockedAtomic += amount;
+                    } else {
+                        totalAtomic -= amount;
+                        if (confirmed) unlockedAtomic -= amount;
+                    }
+                }
+
+                balance = totalAtomic;
+                unlocked = unlockedAtomic;
+
+                Log.i(TAG, String.format(Locale.US,
+                        "=== TRANSACTION BALANCE SUMMARY ===\n" +
+                        "Reconstructed total: %s XMR (%d atomic)\n" +
+                        "Reconstructed unlocked: %s XMR (%d atomic)",
+                        convertAtomicToXmr(balance), balance,
+                        convertAtomicToXmr(unlocked), unlocked));
+
+                if (statusListener != null) {
+                    statusListener.onBalanceUpdated(balance, unlocked);
+                }
+
+                Log.i(TAG, "✓ Final reconstructed balances updated and listener notified");
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error reconstructing balance from transactions", e);
+            }
+        });
+    }
+  
     private String getWalletPath() {
         File walletDir = new File(context.getFilesDir(), "monero");
         if (!walletDir.exists()) walletDir.mkdirs();
@@ -1353,6 +1042,11 @@ public class WalletSuite {
     public static String convertAtomicToXmr(long atomicAmount) {
         double xmr = atomicAmount / 1e12d;
         return String.format("%.12f", xmr).replaceAll("0+$", "").replaceAll("\\.$", "");
+    }
+
+    public void triggerImmediateSync() {
+        Log.d(TAG, "Manual sync triggered");
+        performSingleSync();
     }
 
     public void createTxBlob(String to, String amount, TxBlobCallback cb) {
@@ -1458,7 +1152,7 @@ public class WalletSuite {
         
         executorService.execute(() -> {
             try {
-                Log.d(TAG, "=== SEND TRANSACTION (TXID-BASED) ===");
+                Log.i(TAG, "=== SEND TRANSACTION ===");
                 Log.d(TAG, "Destination: " + destinationAddress);
                 Log.d(TAG, "Amount: " + amountXmr + " XMR");
                 
@@ -1475,7 +1169,7 @@ public class WalletSuite {
                 
                 if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
                     String error = pendingTx.getErrorString();
-                    Log.e(TAG, "Failed to create transaction: " + error);
+                    Log.e(TAG, "✗ Failed to create transaction: " + error);
                     mainHandler.post(() -> callback.onError("Transaction creation failed: " + error));
                     return;
                 }
@@ -1483,7 +1177,7 @@ public class WalletSuite {
                 boolean committed = pendingTx.commit("", true);
                 if (!committed) {
                     String error = pendingTx.getErrorString();
-                    Log.e(TAG, "Failed to commit transaction: " + error);
+                    Log.e(TAG, "✗ Failed to commit transaction: " + error);
                     mainHandler.post(() -> callback.onError("Transaction broadcast failed: " + error));
                     return;
                 }
@@ -1492,38 +1186,23 @@ public class WalletSuite {
                 long actualAmount = pendingTx.getAmount();
                 long fee = pendingTx.getFee();
                 
-                Log.d(TAG, "Transaction broadcast successfully!");
+                Log.i(TAG, "✓ Transaction broadcast successfully!");
                 Log.d(TAG, "TxID: " + txId);
                 Log.d(TAG, "Amount: " + actualAmount + " atomic units");
                 Log.d(TAG, "Fee: " + fee + " atomic units");
                 
                 try {
                     wallet.store(currentWalletPath);
-                    Log.d(TAG, "Wallet stored after transaction");
+                    Log.i(TAG, "✓ Wallet stored after transaction");
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to store wallet after transaction", e);
                 }
                 
-                try {
-                    wallet.refresh();
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to refresh wallet after transaction", e);
-                }
-                
+                mainHandler.post(() -> triggerImmediateSync());
                 mainHandler.post(() -> callback.onSuccess(txId, actualAmount));
                 
-                if (statusListener != null) {
-                    try {
-                        long balance = wallet.getBalance();
-                        long unlockedBalance = wallet.getUnlockedBalance();
-                        mainHandler.post(() -> statusListener.onBalanceUpdated(balance, unlockedBalance));
-                    } catch (Exception e) {
-                        Log.w(TAG, "Failed to update balance after transaction", e);
-                    }
-                }
-                
             } catch (Exception e) {
-                Log.e(TAG, "Exception in sendTransaction", e);
+                Log.e(TAG, "✗ Exception in sendTransaction", e);
                 mainHandler.post(() -> callback.onError("Transaction failed: " + e.getMessage()));
             }
         });
@@ -1537,204 +1216,60 @@ public class WalletSuite {
 
         executorService.execute(() -> {
             try {
-                Log.d(TAG, "=== SEARCH AND IMPORT TRANSACTION ===");
+                Log.i(TAG, "=== SEARCH AND IMPORT TRANSACTION ===");
                 Log.d(TAG, "TxID: " + txId);
 
-                Log.d(TAG, "Refreshing wallet to search for transaction...");
                 wallet.refresh();
+                Log.d(TAG, "Wallet refresh complete");
 
                 TransactionHistory history = wallet.getHistory();
                 if (history == null) {
-                    Log.w(TAG, "Transaction history is null");
+                    Log.w(TAG, "✗ Transaction history is null");
                     mainHandler.post(() -> callback.onError("Transaction history unavailable"));
                     return;
                 }
 
                 history.refresh();
+                List<TransactionInfo> allTxs = history.getAll();
+                Log.d(TAG, "Total transactions: " + (allTxs != null ? allTxs.size() : 0));
 
                 TransactionInfo txInfo = null;
-                for (TransactionInfo info : history.getAll()) {
-                    if (info.hash.equals(txId)) {
-                        txInfo = info;
-                        break;
+                if (allTxs != null) {
+                    for (TransactionInfo info : allTxs) {
+                        if (info.hash.equals(txId)) {
+                            txInfo = info;
+                            break;
+                        }
                     }
                 }
 
                 if (txInfo != null) {
-                    Log.d(TAG, "Transaction found in wallet history!");
+                    Log.i(TAG, "✓ Transaction found!");
+                    long amount = txInfo.amount;
+                    long confirmations = txInfo.confirmations;
+                    long blockHeight = txInfo.blockheight;
 
-                    try {
-                        long amount = txInfo.amount;
-                        long confirmations = txInfo.confirmations;
-                        long blockHeight = txInfo.blockheight;
-
-                        Log.d(TAG, "Transaction details - " +
-                                "Amount: " + amount +
-                                ", Confirmations: " + confirmations +
-                                ", BlockHeight: " + blockHeight +
-                                ", Incoming: " + txInfo.direction);
-
-                        if (statusListener != null) {
-                            try {
-                                long bal = wallet.getBalance();
-                                long ubal = wallet.getUnlockedBalance();
-                                mainHandler.post(() -> statusListener.onBalanceUpdated(bal, ubal));
-                            } catch (Exception e) {
-                                Log.w(TAG, "Failed to update balance", e);
-                            }
-                        }
-
-                        try {
-                            wallet.store(currentWalletPath);
-                        } catch (Exception e) {
-                            Log.w(TAG, "Failed to store wallet", e);
-                        }
-
-                        long finalAmount = amount;
-                        long finalConfirmations = confirmations;
-                        long finalBlockHeight = blockHeight;
-                        mainHandler.post(() ->
-                                callback.onTransactionFound(txId, finalAmount, finalConfirmations, finalBlockHeight)
-                        );
-
-                    } catch (Exception e) {
-                        Log.w(TAG, "Error getting transaction details", e);
-                        mainHandler.post(() -> callback.onError("Failed to parse transaction details"));
+                    if (statusListener != null) {
+                        long bal = wallet.getBalance();
+                        long ubal = wallet.getUnlockedBalance();
+                        mainHandler.post(() -> statusListener.onBalanceUpdated(bal, ubal));
                     }
 
+                    wallet.store(currentWalletPath);
+                    mainHandler.post(() -> callback.onTransactionFound(txId, amount, confirmations, blockHeight));
                 } else {
-                    Log.d(TAG, "Transaction " + txId + " not found in history");
+                    Log.w(TAG, "✗ Transaction not found");
                     mainHandler.post(() -> callback.onTransactionNotFound(txId));
                 }
-
             } catch (Exception e) {
-                Log.e(TAG, "Error searching for transaction", e);
+                Log.e(TAG, "✗ Error searching for transaction", e);
                 mainHandler.post(() -> callback.onError("Search failed: " + e.getMessage()));
             }
         });
     }
     
-    private long getEstimatedCreationHeight() {
-        try {
-            long restoreHeight = wallet.getRestoreHeight();
-            if (restoreHeight > 0) {
-                return restoreHeight;
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "Could not get restore height, trying transaction history");
-        }
-        
-        try {
-            List<TransactionInfo> transactions = wallet.getHistory().getAll();
-            if (transactions != null && !transactions.isEmpty()) {
-                long earliestHeight = Long.MAX_VALUE;
-                for (TransactionInfo tx : transactions) {
-                    long blockHeight = tx.blockheight;
-                    if (blockHeight > 0 && blockHeight < earliestHeight) {
-                        earliestHeight = blockHeight;
-                    }
-                }
-                if (earliestHeight != Long.MAX_VALUE) {
-                    return earliestHeight;
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Error getting transaction history", e);
-        }
-        
-        return 0;
-    }
-
     public void searchForMissingTransaction(String txId, TransactionSearchCallback callback) {
-        Log.d(TAG, "=== MANUAL TRANSACTION SEARCH ===");
-        Log.d(TAG, "Searching for TxID: " + txId);
-
-        executorService.execute(() -> {
-            try {
-                searchAndImportTransaction(txId, new TransactionSearchCallback() {
-                    @Override
-                    public void onTransactionFound(String txId, long amount, long confirmations, long blockHeight) {
-                        callback.onTransactionFound(txId, amount, confirmations, blockHeight);
-                    }
-
-                    @Override
-                    public void onTransactionNotFound(String txId) {
-                        Log.d(TAG, "Transaction not found, attempting rescans...");
-
-                        try {
-                            long currentHeight = wallet.getBlockChainHeight();
-                            long creationHeight = getEstimatedCreationHeight();
-
-                            long[] rescanHeights = new long[] {
-                                Math.max(currentHeight - 500, 0),
-                                Math.max(currentHeight - 5000, 0),
-                                creationHeight
-                            };
-
-                            attemptRescanWithFallback(txId, callback, rescanHeights, 0);
-
-                        } catch (Exception e) {
-                            Log.e(TAG, "Error during rescan setup", e);
-                            mainHandler.post(() -> callback.onTransactionNotFound(txId));
-                        }
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        callback.onError(error);
-                    }
-                });
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error in manual search", e);
-                mainHandler.post(() -> callback.onError("Manual search failed: " + e.getMessage()));
-            }
-        });
-    }
-
-    private void attemptRescanWithFallback(String txId, TransactionSearchCallback callback, long[] rescanHeights, int index) {
-        if (index >= rescanHeights.length) {
-            Log.d(TAG, "All rescans attempted, transaction not found.");
-            mainHandler.post(() -> callback.onTransactionNotFound(txId));
-            return;
-        }
-
-        long rescanHeight = rescanHeights[index];
-        Log.d(TAG, "Rescanning from height: " + rescanHeight);
-
-        wallet.setRestoreHeight(rescanHeight);
-        wallet.rescanBlockchainAsync(new Wallet.RescanCallback() {
-            @Override
-            public void onSuccess() {
-                Log.d(TAG, "Rescan complete, searching again...");
-                searchAndImportTransaction(txId, new TransactionSearchCallback() {
-                    @Override
-                    public void onTransactionFound(String txId, long amount, long confirmations, long blockHeight) {
-                        callback.onTransactionFound(txId, amount, confirmations, blockHeight);
-                    }
-
-                    @Override
-                    public void onTransactionNotFound(String txId) {
-                        attemptRescanWithFallback(txId, callback, rescanHeights, index + 1);
-                    }
-
-                    @Override
-                    public void onError(String error) {
-                        callback.onError(error);
-                    }
-                });
-            }
-
-            @Override
-            public void onError(String error) {
-                Log.e(TAG, "Rescan failed from height " + rescanHeight + ": " + error);
-                attemptRescanWithFallback(txId, callback, rescanHeights, index + 1);
-            }
-        });
-    }
-
-    private long convertXmrToAtomic(double xmr) {
-        return (long) (xmr * 1e12);
+        searchAndImportTransaction(txId, callback);
     }
     
     public void importSignedTransactionBlob(String signedTxBlob, TransactionImportCallback cb) {
@@ -1744,6 +1279,7 @@ public class WalletSuite {
         }
         executorService.execute(() -> {
             try {
+                Log.i(TAG, "=== IMPORT SIGNED TRANSACTION ===");
                 byte[] blob = Base64.decode(signedTxBlob, Base64.NO_WRAP);
                 String hex = bytesToHex(blob);
 
@@ -1754,17 +1290,59 @@ public class WalletSuite {
                     return;
                 }
 
-                try {
-                    wallet.refresh();
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to refresh wallet after import", e);
-                }
-
+                Log.i(TAG, "✓ Transaction imported: " + txId);
+                mainHandler.post(() -> triggerImmediateSync());
                 mainHandler.post(() -> cb.onSuccess(txId));
-
             } catch (Exception e) {
-                Log.e(TAG, "Exception in importSignedTransactionBlob", e);
+                Log.e(TAG, "✗ Exception in importSignedTransactionBlob", e);
                 mainHandler.post(() -> cb.onError("Import failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    public void performManualRescan(long fromHeight, SyncCallback callback) {
+        if (!isInitialized || wallet == null) {
+            callback.onError("Wallet not ready");
+            return;
+        }
+
+        if (isSyncing) {
+            callback.onError("Sync already in progress");
+            return;
+        }
+
+        executorService.execute(() -> {
+            try {
+                Log.i(TAG, "=== MANUAL RESCAN REQUESTED ===");
+                Log.d(TAG, "Rescanning from height: " + fromHeight);
+
+                wallet.setRestoreHeight(fromHeight);
+                wallet.rescanBlockchainAsync(new Wallet.RescanCallback() {
+                    @Override
+                    public void onSuccess() {
+                        Log.i(TAG, "✓ Manual rescan completed");
+                        try {
+                            wallet.store(currentWalletPath);
+                            if (statusListener != null) {
+                                long bal = wallet.getBalance();
+                                long ubal = wallet.getUnlockedBalance();
+                                mainHandler.post(() -> statusListener.onBalanceUpdated(bal, ubal));
+                            }
+                            mainHandler.post(() -> callback.onSuccess("Rescan completed successfully"));
+                        } catch (Exception e) {
+                            mainHandler.post(() -> callback.onError("Rescan completed but error updating: " + e.getMessage()));
+                        }
+                    }
+
+                    @Override
+                    public void onError(String error) {
+                        Log.e(TAG, "✗ Manual rescan failed: " + error);
+                        mainHandler.post(() -> callback.onError("Rescan failed: " + error));
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "✗ Exception during manual rescan", e);
+                mainHandler.post(() -> callback.onError("Rescan failed: " + e.getMessage()));
             }
         });
     }
