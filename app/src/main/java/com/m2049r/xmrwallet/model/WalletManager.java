@@ -42,14 +42,14 @@ public class WalletManager {
 
     /* ===== CONFIGURATION LOADERS ===== */
     public void applyConfiguration(Properties props) {
-        this.walletName = props.getProperty("wallet.name", "bitchat_wallet");
+        this.walletName = props.getProperty("wallet.name", "bitchat_wallet_stagenet");
         this.walletPassword = props.getProperty("wallet.password", "bitchat_secure_pass");
         this.walletLanguage = props.getProperty("wallet.language", "English");
         this.daemonAddress = props.getProperty("daemon.address", "stagenet.xmr-tw.org");
         this.daemonPort = Integer.parseInt(props.getProperty("daemon.port", "38081"));
         this.daemonUsername = props.getProperty("daemon.username", "");
         this.daemonPassword = props.getProperty("daemon.password", "");
-        int netInt = Integer.parseInt(props.getProperty("network.type", "2")); // default stagenet
+        int netInt = Integer.parseInt(props.getProperty("network.type", "2"));
         this.networkType = fromInt(netInt);
         this.forceSsl = Boolean.parseBoolean(props.getProperty("daemon.ssl", "false"));
     }

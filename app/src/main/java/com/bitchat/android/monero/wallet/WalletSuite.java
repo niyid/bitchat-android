@@ -544,15 +544,6 @@ public class WalletSuite {
                 double percent = daemonHeight > 0 ? (100.0 * walletHeight / daemonHeight) : 100.0;
                 Log.d(TAG, "Notifying status listener: " + String.format("%.2f", percent) + "% complete");
                 
-                //This is hacked as wallet.getBalance and wallet.getUnlockedBalance() are not functioning
-                //calculateFinalBalancesAfterSync();
-                //searchForSpecificTransaction();
-                try {
-                    File outputsFile = new File("/sdcard/bitchat_wallet.outputs");
-                    importOutputs(outputsFile);
-                } catch (Exception e) {
-                    Log.e(TAG, "✗ Error importing output file", e);
-                }
                 statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, percent);
                 statusListener.onBalanceUpdated(balance, unlocked);
             }
@@ -567,7 +558,7 @@ public class WalletSuite {
         Log.d(TAG, "=== SYNC OPERATION COMPLETE ===");
     }
     
-    private void importOutputs(File outputsFile) {
+    public void importOutputs(File outputsFile) {
         if (outputsFile.exists()) {
             int success = wallet.importOutputs(outputsFile.getAbsolutePath());
             if (success > -1) {
@@ -908,7 +899,7 @@ public class WalletSuite {
                     Log.w(TAG, "Metadata fetch failed", e);
                 }
                 
-                //calculateFinalBalancesAfterSync();
+                //
 
                 // Step 9: Sync
                 performSingleSync();
@@ -948,7 +939,7 @@ public class WalletSuite {
                     isInitialized = true;
                     notifyWalletInitialized(true, "Wallet restored");
 
-                    //calculateFinalBalancesAfterSync();
+                    //
                     performSingleSync();
                     startPeriodicSync();
                 } else {
@@ -963,75 +954,6 @@ public class WalletSuite {
         });
     }
     
-    /**
-     * Rebuilds wallet balances by scanning all transactions.
-     * Used when JNI-reported balances are unreliable or inconsistent.
-     */
-    public void calculateFinalBalancesAfterSync() {
-        executorService.execute(() -> {
-            try {
-                if (wallet == null) {
-                    Log.w(TAG, "calculateFinalBalancesAfterSync called but wallet is null");
-                    return;
-                }
-
-                Log.i(TAG, "=== STARTING TRANSACTION-BASED BALANCE RECONSTRUCTION ===");
-
-                List<TransactionInfo> transactions = wallet.getHistory().getAll();
-                if (transactions == null || transactions.isEmpty()) {
-                    Log.w(TAG, "No transactions found — reconstructed balance = 0");
-                    balance = 0L;
-                    unlocked = 0L;
-
-                    if (statusListener != null) {
-                        statusListener.onBalanceUpdated(balance, unlocked);
-                    }
-                    return;
-                }
-
-                long totalAtomic = 0L;
-                long unlockedAtomic = 0L;
-
-                for (TransactionInfo tx : transactions) {
-                    long amount = tx.amount;
-                    boolean incoming = tx.direction == TransactionInfo.Direction.Direction_In;
-                    boolean confirmed = tx.confirmations > 0;
-
-                    Log.d(TAG, String.format(Locale.US,
-                            "TX %s | incoming=%s | confirmed=%s | amount=%d (%s XMR)",
-                            tx.hash, incoming, confirmed, amount, convertAtomicToXmr(amount)));
-
-                    if (incoming) {
-                        totalAtomic += amount;
-                        if (confirmed) unlockedAtomic += amount;
-                    } else {
-                        totalAtomic -= amount;
-                        if (confirmed) unlockedAtomic -= amount;
-                    }
-                }
-
-                balance = totalAtomic;
-                unlocked = unlockedAtomic;
-
-                Log.i(TAG, String.format(Locale.US,
-                        "=== TRANSACTION BALANCE SUMMARY ===\n" +
-                        "Reconstructed total: %s XMR (%d atomic)\n" +
-                        "Reconstructed unlocked: %s XMR (%d atomic)",
-                        convertAtomicToXmr(balance), balance,
-                        convertAtomicToXmr(unlocked), unlocked));
-
-                if (statusListener != null) {
-                    statusListener.onBalanceUpdated(balance, unlocked);
-                }
-
-                Log.i(TAG, "✓ Final reconstructed balances updated and listener notified");
-
-            } catch (Exception e) {
-                Log.e(TAG, "Error reconstructing balance from transactions", e);
-            }
-        });
-    }
-  
     private String getWalletPath() {
         File walletDir = new File(context.getFilesDir(), "monero");
         if (!walletDir.exists()) walletDir.mkdirs();
