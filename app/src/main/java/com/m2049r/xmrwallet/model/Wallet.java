@@ -171,6 +171,7 @@ public class Wallet {
 
     public native String exportOutputs();
     public native int importOutputs(String outputs);
+    public native void rescanSpent();
 
     public native String getMultisigInfo();
     public native String makeMultisig(String multisigInfo, int threshold);

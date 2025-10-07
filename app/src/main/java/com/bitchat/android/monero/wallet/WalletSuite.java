@@ -162,6 +162,14 @@ public class WalletSuite {
         loadConfiguration();
         registerShutdownHandler();
     }
+    
+    public long getBalanceValue() {
+        return balance;
+    }
+
+    public long getUnlockedBalanceValue() {
+        return unlocked;
+    }    
 
     public static synchronized WalletSuite getInstance(Context context) {
         if (instance == null) {
@@ -537,7 +545,14 @@ public class WalletSuite {
                 Log.d(TAG, "Notifying status listener: " + String.format("%.2f", percent) + "% complete");
                 
                 //This is hacked as wallet.getBalance and wallet.getUnlockedBalance() are not functioning
-                calculateFinalBalancesAfterSync();                
+                //calculateFinalBalancesAfterSync();
+                //searchForSpecificTransaction();
+                try {
+                    File outputsFile = new File("/sdcard/bitchat_wallet.outputs");
+                    importOutputs(outputsFile);
+                } catch (Exception e) {
+                    Log.e(TAG, "✗ Error importing output file", e);
+                }
                 statusListener.onSyncProgress(walletHeight, walletHeight, daemonHeight, percent);
                 statusListener.onBalanceUpdated(balance, unlocked);
             }
@@ -550,6 +565,18 @@ public class WalletSuite {
         persistWalletSafely();
         
         Log.d(TAG, "=== SYNC OPERATION COMPLETE ===");
+    }
+    
+    private void importOutputs(File outputsFile) {
+        if (outputsFile.exists()) {
+            int success = wallet.importOutputs(outputsFile.getAbsolutePath());
+            if (success > -1) {
+                Log.i(TAG, "✅ Outputs imported successfully from " + outputsFile);
+                wallet.rescanBlockchainAsync();
+            } else {
+                Log.w(TAG, "⚠️ Failed to import outputs from " + outputsFile);
+            }
+        }    
     }
  
     private void persistWalletSafely() {
@@ -880,6 +907,8 @@ public class WalletSuite {
                 } catch (Exception e) {
                     Log.w(TAG, "Metadata fetch failed", e);
                 }
+                
+                //calculateFinalBalancesAfterSync();
 
                 // Step 9: Sync
                 performSingleSync();
@@ -919,6 +948,7 @@ public class WalletSuite {
                     isInitialized = true;
                     notifyWalletInitialized(true, "Wallet restored");
 
+                    //calculateFinalBalancesAfterSync();
                     performSingleSync();
                     startPeriodicSync();
                 } else {
@@ -1199,11 +1229,91 @@ public class WalletSuite {
                 }
                 
                 mainHandler.post(() -> triggerImmediateSync());
+                mainHandler.post(() -> calculateFinalBalancesAfterSync());
                 mainHandler.post(() -> callback.onSuccess(txId, actualAmount));
                 
             } catch (Exception e) {
                 Log.e(TAG, "✗ Exception in sendTransaction", e);
                 mainHandler.post(() -> callback.onError("Transaction failed: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void searchForSpecificTransaction() {
+        final String TARGET_TX_ID = "65860b5309fdf18cabce905d8869e35763dc44ff96a2a1cd05359790d2538550";
+        
+        if (!isInitialized || wallet == null) {
+            Log.d(TAG, "Cannot search for transaction: wallet not ready");
+            return;
+        }
+        
+        executorService.execute(() -> {
+            try {
+                Log.i(TAG, "=== AUTO-SEARCH FOR SPECIFIC TRANSACTION ===");
+                
+                // Get current wallet state
+                long currentHeight = wallet.getBlockChainHeight();
+                long restoreHeight = wallet.getRestoreHeight();
+                long walletBalance = wallet.getBalance();
+                long unlockedBalance = wallet.getUnlockedBalance();
+                
+                Log.d(TAG, "Wallet height: " + currentHeight);
+                Log.d(TAG, "Restore height: " + restoreHeight);
+                Log.d(TAG, "Balance: " + walletBalance);
+                Log.d(TAG, "Unlocked: " + unlockedBalance);
+
+                TransactionHistory history = wallet.getHistory();
+                if (history == null) {
+                    Log.w(TAG, "✗ Transaction history is null");
+                    return;
+                }
+
+                history.refresh();
+                List<TransactionInfo> allTxs = history.getAll();
+                Log.d(TAG, "Total transactions: " + (allTxs != null ? allTxs.size() : 0));
+
+                TransactionInfo txInfo = null;
+                if (allTxs != null) {
+                    for (TransactionInfo info : allTxs) {
+                        if (info.hash.equals(TARGET_TX_ID)) {
+                            txInfo = info;
+                            break;
+                        }
+                    }
+                }
+
+                if (txInfo != null) {
+                    Log.i(TAG, "✓ TARGET TRANSACTION FOUND!");
+                    Log.d(TAG, "TxID: " + TARGET_TX_ID);
+                    Log.d(TAG, "Amount: " + txInfo.amount + " atomic units (" + (txInfo.amount / 1e12) + " XMR)");
+                    Log.d(TAG, "Confirmations: " + txInfo.confirmations);
+                    Log.d(TAG, "Block height: " + txInfo.blockheight);
+                    Log.d(TAG, "Direction: " + (txInfo.direction == TransactionInfo.Direction.Direction_In ? "INCOMING" : "OUTGOING"));
+                    Log.d(TAG, "Is failed: " + txInfo.isFailed);
+                    Log.d(TAG, "Is pending: " + txInfo.isPending);
+                    Log.d(TAG, "Timestamp: " + txInfo.timestamp);
+                    
+                    // CRITICAL CHECKS
+                    if (txInfo.blockheight > currentHeight) {
+                        Log.e(TAG, "⚠️ PROBLEM: Transaction block (" + txInfo.blockheight + ") is ahead of wallet height (" + currentHeight + ")");
+                        Log.e(TAG, "⚠️ Wallet needs to sync further!");
+                    }
+                    
+                    if (txInfo.blockheight < restoreHeight) {
+                        Log.e(TAG, "⚠️ PROBLEM: Transaction block (" + txInfo.blockheight + ") is before restore height (" + restoreHeight + ")");
+                        Log.e(TAG, "⚠️ Need to rescan from block " + txInfo.blockheight + " or earlier!");
+                    }
+                    
+                    if (txInfo.direction == TransactionInfo.Direction.Direction_In && walletBalance == 0) {
+                        Log.e(TAG, "⚠️ PROBLEM: Incoming transaction found but balance is 0!");
+                        Log.e(TAG, "⚠️ This suggests outputs were not properly imported or were already spent");
+                    }
+                    
+                } else {
+                    Log.d(TAG, "Target transaction not found in wallet history");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "✗ Error during auto-search for transaction", e);
             }
         });
     }
