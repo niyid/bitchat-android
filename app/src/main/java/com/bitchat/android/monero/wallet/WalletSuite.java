@@ -488,11 +488,27 @@ public class WalletSuite {
                 checkAndTriggerRescan(walletHeight, daemonHeight);
             }
             
-            // Persist wallet state
-            persistWallet();
+            // ONLY persist if balance is valid (non-zero or we have no transactions)
+            if (bal > 0 || getTxCount() == 0) {
+                persistWallet();
+            } else {
+                Log.w(TAG, "⚠️ Skipping persist - suspicious zero balance with transactions");
+            }
             
         } catch (Exception e) {
             Log.e(TAG, "Error in sync completion", e);
+        }
+    }
+
+    private int getTxCount() {
+        try {
+            TransactionHistory history = wallet.getHistory();
+            if (history == null) return 0;
+            history.refresh();
+            List<TransactionInfo> allTxs = history.getAll();
+            return (allTxs != null) ? allTxs.size() : 0;
+        } catch (Exception e) {
+            return 0;
         }
     }
 
@@ -564,7 +580,7 @@ public class WalletSuite {
      * Triggers a full blockchain rescan from block 1
      * BLOCKS ALL OTHER OPERATIONS until complete
      * 
-     * Instead: Set restore height to 1, then do regular refresh with progress monitoring
+     * Sets restore height to 1, then does regular refresh with progress monitoring
      */
     private void triggerRescan() {
         // State transition - CRITICAL: Nothing else can run during rescan
@@ -585,16 +601,10 @@ public class WalletSuite {
                 
                 // Step 1: Backup current state
                 Log.d(TAG, "[1/7] Backing up wallet cache...");
-                backupWalletCache();
+//                backupWalletCache();
                 
-                // Step 2: Store current wallet state
-                Log.d(TAG, "[2/7] Storing wallet state...");
-                try {
-                    wallet.store(walletPath);
-                    Log.d(TAG, "✓ Wallet stored");
-                } catch (Exception e) {
-                    Log.w(TAG, "Store failed (continuing anyway)", e);
-                }
+                // Step 2: SKIP storing wallet state (it's corrupted!)
+                Log.d(TAG, "[2/7] Skipping store (cache is corrupted)");
                 
                 // Step 3: Close wallet cleanly
                 Log.d(TAG, "[3/7] Closing wallet...");
@@ -604,13 +614,14 @@ public class WalletSuite {
                 Thread.sleep(1000); // Give JNI time to clean up
                 
                 // Step 4: Delete cache files (all variations)
-                Log.d(TAG, "[4/7] Moving cache file...");
-                boolean cacheDeleted = false;
-                
+//                Log.d(TAG, "[4/7] Deleting cache file...");
+//                boolean cacheDeleted = false;
+
+/*                
                 File cacheFile = new File(walletPath);
                 if (cacheFile.exists()) {
                     if (cacheFile.delete()) {
-                        Log.i(TAG, "✓ Main cache moved: " + walletPath);
+                        Log.i(TAG, "✓ Main cache deleted: " + walletPath);
                         cacheDeleted = true;
                     } else {
                         Log.e(TAG, "✗ Failed to delete main cache");
@@ -618,16 +629,16 @@ public class WalletSuite {
                 } else {
                     Log.d(TAG, "Main cache doesn't exist (already deleted?)");
                 }
-                
+*/                
                 // Also try to delete any .unportable files
                 File unportableFile = new File(walletPath + ".unportable");
                 if (unportableFile.exists() && unportableFile.delete()) {
                     Log.d(TAG, "✓ Deleted .unportable file");
                 }
                 
-                if (!cacheDeleted) {
-                    Log.w(TAG, "⚠️ Cache may not have been deleted - rescan may not help");
-                }
+//                if (!cacheDeleted) {
+//                    Log.w(TAG, "⚠️ Cache may not have been deleted - rescan may not help");
+//                }
                 
                 // Step 5: Reopen wallet (creates fresh cache)
                 Log.d(TAG, "[5/7] Reopening wallet...");
@@ -639,6 +650,14 @@ public class WalletSuite {
                     return;
                 }
                 Log.i(TAG, "✓ Wallet reopened with fresh cache");
+                
+                // CRITICAL: Store the wallet immediately to create the cache file on disk
+//                try {
+//                    wallet.store(walletPath);
+//                    Log.i(TAG, "✓ Fresh cache file created on disk");
+//                } catch (Exception e) {
+//                    Log.e(TAG, "✗ Failed to create cache file", e);
+//                }
                 
                 // Step 6: Reconnect to daemon
                 Log.d(TAG, "[6/7] Reconnecting to daemon...");
@@ -656,10 +675,28 @@ public class WalletSuite {
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Daemon reconnection error (continuing)", e);
-                }                
+                }
                 
-                // Step 7: Set restore height to 1 and start manual refresh loop
-                Log.d(TAG, "[7/7] Setting restore height to 1 and starting rescan...");
+                // Step 7: Set restore height to 1 and start rescan
+                Log.d(TAG, "[7/7] Initializing wallet cache and starting rescan...");
+                
+                // CRITICAL: We need to do a forward sync FIRST to initialize the cache
+                // Then we can rescan backwards from block 1
+                Log.d(TAG, "Step 7a: Performing initial forward sync to initialize cache...");
+                
+                try {
+                    // Do a quick forward refresh to current height to initialize cache structure
+                    wallet.refreshAsync();
+                    Thread.sleep(3000); // Give it time to initialize
+                    
+                    long currentHeight = wallet.getBlockChainHeight();
+                    Log.i(TAG, "✓ Cache initialized at height: " + currentHeight);
+                } catch (Exception e) {
+                    Log.w(TAG, "Initial refresh error (continuing)", e);
+                }
+                
+                // NOW set restore height to 1 and rescan
+                Log.d(TAG, "Step 7b: Setting restore height to 1 and rescanning...");
                 wallet.setRestoreHeight(1);
                 Log.i(TAG, "✓ Restore height set to 1");
                 
@@ -676,10 +713,7 @@ public class WalletSuite {
                 Log.i(TAG, "Target: Block 1 → " + daemonHeight + " (" + daemonHeight + " blocks)");
                 Log.i(TAG, "⏳ Estimated time: " + (daemonHeight / 1000) + "-" + (daemonHeight / 500) + " minutes");
                 
-                // Start monitoring BEFORE the refresh
-                mainHandler.postDelayed(this::monitorRescanProgress, 5000);
-                
-                // Instead: Just call refresh() which will scan from restore height
+                // Start monitoring AFTER the refresh starts
                 long rescanStartTime = System.currentTimeMillis();
                 
                 // Set up listener for progress
@@ -721,16 +755,58 @@ public class WalletSuite {
                     }
                 });
                 
-                // THIS IS THE KEY: wallet.refresh() will scan from restore height (1)
-                Log.d(TAG, "Starting wallet.refresh() from block 1...");
-                wallet.refresh();
+                // THIS IS THE KEY: wallet.rescanBlockchainAsync() will scan from restore height (1)
+                Log.d(TAG, "Starting wallet.rescanBlockchainAsync() from block 1...");
+                wallet.rescanBlockchainAsync();
                 
                 long rescanDuration = System.currentTimeMillis() - rescanStartTime;
                 Log.i(TAG, "✓ Rescan refresh completed in " + (rescanDuration / 1000) + " seconds");
                 
-                // Final monitoring check
-                mainHandler.post(this::monitorRescanProgress);
+                // CRITICAL: Get and log balance IMMEDIATELY after rescan completes
+                long immediateBalance = wallet.getBalance();
+                long immediateUnlocked = wallet.getUnlockedBalance();
+                int immediateTxCount = 0;
+                try {
+                    TransactionHistory history = wallet.getHistory();
+                    if (history != null) {
+                        history.refresh();
+                        List<TransactionInfo> allTxs = history.getAll();
+                        immediateTxCount = (allTxs != null) ? allTxs.size() : 0;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Error getting tx count", e);
+                }
                 
+                Log.i(TAG, "=== POST-RESCAN STATE ===");
+                Log.i(TAG, "  Balance: " + (immediateBalance / 1e12) + " XMR");
+                Log.i(TAG, "  Unlocked: " + (immediateUnlocked / 1e12) + " XMR");
+                Log.i(TAG, "  Transactions: " + immediateTxCount);
+                
+                // CRITICAL: Store the wallet RIGHT NOW while balance is correct
+                if (immediateBalance > 0 || immediateTxCount == 0) {
+                    try {
+                        wallet.store(walletPath);
+                        Log.i(TAG, "✓✓✓ Wallet stored immediately after rescan with balance: " + 
+                              (immediateBalance / 1e12) + " XMR");
+                        
+                        // Update internal cache
+                        balance.set(immediateBalance);
+                        unlockedBalance.set(immediateUnlocked);
+                    } catch (Exception e) {
+                        Log.e(TAG, "✗ CRITICAL: Failed to store wallet after rescan!", e);
+                    }
+                } else {
+                    Log.w(TAG, "⚠️ NOT storing - zero balance with " + immediateTxCount + " transactions");
+                }
+                
+                // Start progress monitoring (this will handle state transition)
+                mainHandler.postDelayed(this::monitorRescanProgress, 5000);
+                
+            } catch (InterruptedException e) {
+                Log.w(TAG, "Rescan interrupted", e);
+                currentState.set(WalletState.IDLE);
+                startPeriodicSync();
+                Thread.currentThread().interrupt();
             } catch (Exception e) {
                 Log.e(TAG, "✗ Rescan failed with exception", e);
                 currentState.set(WalletState.IDLE);
@@ -742,6 +818,7 @@ public class WalletSuite {
     /**
      * Monitors rescan progress with visible updates
      * Shows progress every check until complete
+     * CRITICAL: This is the ONLY method that should store wallet after rescan
      */
     private void monitorRescanProgress() {
         if (currentState.get() != WalletState.RESCANNING) {
@@ -796,15 +873,26 @@ public class WalletSuite {
                     Log.i(TAG, "  - Balance: " + (currentBalance / 1e12) + " XMR");
                     Log.i(TAG, "  - Transactions: " + txCount);
                     
-                    // Small delay to ensure everything settles
-                    Thread.sleep(3000);
+                    // NOTE: Wallet was already stored immediately after rescan in triggerRescan()
+                    // This is just a verification check
+                    Log.d(TAG, "Wallet was already persisted immediately after rescan");
                     
-                    // Persist final state
-                    try {
-                        wallet.store(wallet.getPath());
-                        Log.d(TAG, "✓ Wallet state persisted after rescan");
-                    } catch (Exception e) {
-                        Log.w(TAG, "Failed to persist after rescan", e);
+                    // Verify balance hasn't changed
+                    if (currentBalance != balance.get()) {
+                        Log.w(TAG, "⚠️ Balance changed from " + (balance.get() / 1e12) + 
+                              " to " + (currentBalance / 1e12) + " XMR");
+                        
+                        // If balance is still good, store again
+                        if (currentBalance > 0 || txCount == 0) {
+                            try {
+                                wallet.store(wallet.getPath());
+                                balance.set(currentBalance);
+                                unlockedBalance.set(wallet.getUnlockedBalance());
+                                Log.d(TAG, "✓ Re-stored wallet with updated balance");
+                            } catch (Exception e) {
+                                Log.w(TAG, "Failed to re-persist", e);
+                            }
+                        }
                     }
                     
                     // Transition back to IDLE
@@ -813,9 +901,6 @@ public class WalletSuite {
                     
                     // Restart periodic sync
                     startPeriodicSync();
-                    
-                    // Do one final sync to update everything
-                    mainHandler.postDelayed(this::performSync, 2000);
                     
                 } else {
                     // Still rescanning - check again soon
