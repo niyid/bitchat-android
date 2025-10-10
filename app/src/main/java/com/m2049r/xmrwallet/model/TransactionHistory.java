@@ -9,10 +9,6 @@ import java.util.Map;
 import timber.log.Timber;
 
 public class TransactionHistory {
-    static {
-        System.loadLibrary("monerujo");
-    }
-
     private long handle;
 
     int accountIndex;

@@ -49,6 +49,8 @@ import java.util.*
 import kotlin.collections.HashMap
 import android.util.Log
 
+import com.m2049r.xmrwallet.model.TransactionInfo
+
 //import com.bitchat.android.ui.TransactionSearchDialog
 //import com.bitchat.android.ui.PendingTransactionsSheet
 //import com.bitchat.android.ui.PendingTransactionsIndicator
@@ -118,6 +120,17 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 Log.d(TAG, "Wallet init result: $message")
                 if (success) {
                     viewModel.updateWalletStatusMessage("Wallet ready")
+                    // Get wallet address when ready
+                    viewModel.walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                        override fun onSuccess(address: String) {
+                            Log.d(TAG, "Wallet address retrieved: $address")
+                            viewModel.updateMyWalletAddress(address)
+                        }
+                        override fun onError(error: String) {
+                            Log.e(TAG, "Failed to get wallet address: $error")
+                            viewModel.updateWalletStatusMessage("Address error: $error")
+                        }
+                    })
                     // Get balance when wallet is ready
                     viewModel.walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
                         override fun onSuccess(balance: Long, unlockedBalance: Long) {
@@ -558,6 +571,15 @@ private fun handleMoneroSend(
     Log.d(TAG, "WalletSuite available: ${walletSuite != null}")
     Log.d(TAG, "MoneroChatTransferManager available: ${moneroChatTransferManager != null}")
 
+    // CRITICAL: Check if wallet is busy with another operation
+    if (walletSuite?.isSyncing() == true) {
+        val msg = "Wallet is busy syncing. Please wait and try again."
+        Log.w(TAG, "SEND_BLOCKED - Wallet busy: $msg")
+        onError(msg)
+        viewModel.addSystemMessage("⏳ $msg")
+        return
+    }
+
     // Basic validation
     if (walletSuite == null || selectedPrivatePeer == null || !canReceiveMonero) {
         val msg = "Cannot send Monero: wallet not ready or peer cannot receive Monero"
@@ -604,6 +626,9 @@ private fun handleMoneroSend(
         return
     }
 
+    // Show preparing message
+    viewModel.addSystemMessage("⏳ Preparing transaction of $amountXmr XMR...")
+
     // Check wallet balance before attempting send
     Log.d(TAG, "Checking wallet balance before send...")
     walletSuite.getBalance(object : WalletSuite.BalanceCallback {
@@ -615,6 +640,71 @@ private fun handleMoneroSend(
             Log.d(TAG, "Current balance: $balanceXmrStr XMR (unlocked: $unlockedBalanceXmrStr XMR)")
             Log.d(TAG, "Balance in atomic units: $balance (unlocked: $unlockedBalance)")
 
+            // CRITICAL: Check for stale balance (zero balance with existing transactions)
+            if (balance == 0L && unlockedBalance == 0L) {
+                Log.w(TAG, "⚠️ Zero balance detected - verifying wallet state...")
+                
+                // Check if wallet has transactions (indicates stale cache)
+                walletSuite.getTransactionHistory(object : WalletSuite.TransactionHistoryCallback {
+                    override fun onSuccess(transactions: List<TransactionInfo>) {
+                        if (transactions.isNotEmpty()) {
+                            Log.w(TAG, "⚠️ STALE BALANCE DETECTED: ${transactions.size} transactions but zero balance")
+                            viewModel.addSystemMessage("⏳ Refreshing wallet balance...")
+                            
+                            // Force rescan to fix stale balance
+                            walletSuite.forceRescan(object : WalletSuite.RescanCallback {
+                                override fun onComplete(newBalance: Long, newUnlockedBalance: Long) {
+                                    val newBalanceXmr = WalletSuite.convertAtomicToXmr(newUnlockedBalance)
+                                    Log.i(TAG, "✅ Balance refreshed: $newBalanceXmr XMR")
+                                    
+                                    if (newUnlockedBalance > 0L) {
+                                        viewModel.addSystemMessage("✅ Balance refreshed: $newBalanceXmr XMR")
+                                        // Retry send with fresh balance
+                                        handleMoneroSend(
+                                            amount = amount,
+                                            walletSuite = walletSuite,
+                                            moneroChatTransferManager = moneroChatTransferManager,
+                                            selectedPrivatePeer = selectedPrivatePeer,
+                                            canReceiveMonero = canReceiveMonero,
+                                            receiverMoneroAddress = receiverMoneroAddress,
+                                            viewModel = viewModel,
+                                            onSuccess = onSuccess,
+                                            onError = onError
+                                        )
+                                    } else {
+                                        val msg = "Balance still zero after refresh"
+                                        Log.e(TAG, "SEND_FAILED - $msg")
+                                        viewModel.addSystemMessage("❌ $msg")
+                                        onError(msg)
+                                    }
+                                }
+                                
+                                override fun onError(error: String) {
+                                    val msg = "Failed to refresh balance: $error"
+                                    Log.e(TAG, "SEND_FAILED - $msg")
+                                    viewModel.addSystemMessage("❌ $msg")
+                                    onError(msg)
+                                }
+                            })
+                            return
+                        }
+                        // No transactions found - truly zero balance, proceed to error
+                        Log.d(TAG, "Zero balance confirmed - no transactions in wallet")
+                        proceedWithBalanceValidation(balance, unlockedBalance)
+                    }
+                    
+                    override fun onError(error: String) {
+                        Log.w(TAG, "Could not check transaction history: $error - proceeding with validation")
+                        proceedWithBalanceValidation(balance, unlockedBalance)
+                    }
+                })
+            } else {
+                // Balance is non-zero, proceed normally
+                proceedWithBalanceValidation(balance, unlockedBalance)
+            }
+        }
+        
+        private fun proceedWithBalanceValidation(balance: Long, unlockedBalance: Long) {
             // Estimate transaction fee
             val estimatedFeeXmr = 0.001
             val totalRequiredXmr = amountXmr + estimatedFeeXmr
@@ -643,33 +733,63 @@ private fun handleMoneroSend(
             }
 
             Log.i(TAG, "Balance check passed - proceeding with Monero send")
+            viewModel.addSystemMessage("💸 Sending $amountXmr XMR...")
 
             try {
-                moneroChatTransferManager?.handleMoneroSend(
-                    amount = amount,
-                    selectedPrivatePeer = selectedPrivatePeer,
-                    canReceiveMonero = canReceiveMonero,
-                    receiverMoneroAddress = receiverMoneroAddress,
-                    onSuccess = {
-                        Log.i(TAG, "=== MONERO SEND SUCCESSFUL ===")
-                        viewModel.addSystemMessage("✅ Monero payment of $amountXmr XMR initiated successfully")
-                        onSuccess()
-                    },
-                    onError = { error ->
-                        Log.e(TAG, "=== MONERO SEND FAILED === $error")
-                        viewModel.addSystemMessage("⛔ Failed to send Monero payment: $error")
-                        onError(error)
+                // Use WalletSuite.sendTransaction directly instead of MoneroChatTransferManager
+                // This ensures we go through the fixed sendTransaction with state machine checks
+                walletSuite.sendTransaction(
+                    receiverMoneroAddress,
+                    amountXmr,
+                    object : WalletSuite.TransactionCallback {
+                        override fun onSuccess(txId: String, sentAmount: Long) {
+                            val sentAmountXmr = WalletSuite.convertAtomicToXmr(sentAmount)
+                            Log.i(TAG, "=== MONERO SEND SUCCESSFUL ===")
+                            Log.i(TAG, "Transaction ID: $txId")
+                            Log.i(TAG, "Amount sent: $sentAmountXmr XMR")
+                            
+                            viewModel.addSystemMessage("✅ Sent $sentAmountXmr XMR")
+                            viewModel.addSystemMessage("📝 TX: ${txId.take(16)}...")
+                            
+                            // Share transaction ID with peer via MoneroChatTransferManager
+                            moneroChatTransferManager?.handleTransactionIdShare(
+                                txId = txId,
+                                receiverPeerId = selectedPrivatePeer
+                            )
+                            
+                            onSuccess()
+                        }
+
+                        override fun onError(error: String) {
+                            Log.e(TAG, "=== MONERO SEND FAILED ===")
+                            Log.e(TAG, "Error: $error")
+                            
+                            // Check for specific error types and provide helpful messages
+                            val userMessage = when {
+                                error.contains("busy", ignoreCase = true) ||
+                                error.contains("syncing", ignoreCase = true) ||
+                                error.contains("SYNCING", ignoreCase = false) -> {
+                                    "Wallet is busy. Please wait a moment and try again."
+                                }
+                                error.contains("insufficient", ignoreCase = true) -> {
+                                    "Insufficient balance. Check your balance and try again."
+                                }
+                                error.contains("daemon", ignoreCase = true) ||
+                                error.contains("connection", ignoreCase = true) -> {
+                                    "Network error. Check your connection and try again."
+                                }
+                                else -> "Payment failed: $error"
+                            }
+                            
+                            viewModel.addSystemMessage("❌ $userMessage")
+                            onError(error)
+                        }
                     }
-                ) ?: run {
-                    val msg = "Monero transfer system is not available"
-                    Log.w(TAG, "SEND_FAILED - Transfer manager null: $msg")
-                    viewModel.addSystemMessage("⛔ $msg")
-                    onError(msg)
-                }
+                )
             } catch (e: Exception) {
-                val msg = "Payment failed due to error: ${e.message}"
+                val msg = "Payment failed due to exception: ${e.message}"
                 Log.e(TAG, "SEND_FAILED - Exception during send: $msg", e)
-                viewModel.addSystemMessage("⛔ $msg")
+                viewModel.addSystemMessage("❌ $msg")
                 onError(msg)
             }
         }
