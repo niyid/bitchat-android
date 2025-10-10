@@ -74,6 +74,17 @@ public class TransactionInfo implements Parcelable, Comparable<TransactionInfo> 
     public String txKey = null;
     public String notes = null;
     public String address = null;
+    
+    public TransactionInfo(
+        String hash,
+        long amount,
+        long timestamp,
+        long confirmations) {
+        this.hash = hash;
+        this.amount = amount;
+        this.timestamp = timestamp;
+        this.amount = amount;        
+    }
 
     public TransactionInfo(
             int direction,

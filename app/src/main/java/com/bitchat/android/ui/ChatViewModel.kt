@@ -150,6 +150,8 @@ class ChatViewModel(
                 
     var daemonConfigLoading by mutableStateOf(false)
         private set
+        
+    val isWalletBusy: StateFlow<Boolean> = MutableStateFlow(false)    
 
     fun showDaemonConfigDialog() {
         showDaemonConfigDialog = true
@@ -277,8 +279,30 @@ class ChatViewModel(
     }
 
     fun shareMoneroAddressWithPeer(peer: String, address: String) {
+        Log.d(TAG, "=== SHARING MONERO ADDRESS ===")
+        Log.d(TAG, "Target peer: $peer")
+        Log.d(TAG, "My address: $address")
+        Log.d(TAG, "Already sent to peers: ${moneroAddressSentTo}")
+        
+        // Mark as sent BEFORE sending to avoid race conditions
         moneroAddressSentTo.add(peer)
-        sendDirectMessage(peer, "[MONERO_ADDRESS]$address")
+        Log.d(TAG, "Marked as sent to peer: $peer")
+        
+        val messageContent = "[MONERO_ADDRESS]$address"
+        Log.d(TAG, "Sending message: $messageContent")
+        
+        try {
+            sendDirectMessage(peer, messageContent)
+            Log.i(TAG, "âœ… Successfully sent Monero address to $peer")
+            addSystemMessage("INFO¤ Shared Monero address with ${peerNicknames.value?.get(peer) ?: peer}")
+        } catch (e: Exception) {
+            Log.e(TAG, "âŒ Failed to send Monero address: ${e.message}", e)
+            // Remove from sent list if failed
+            moneroAddressSentTo.remove(peer)
+            addSystemMessage("âŒ Failed to share address with ${peerNicknames.value?.get(peer) ?: peer}")
+        }
+        
+        Log.d(TAG, "==============================")
     }
 
     private fun loadAndInitialize() {
@@ -566,18 +590,46 @@ class ChatViewModel(
     }
     
     fun updatePeerMoneroAddress(peerID: String, address: String) {
-        Log.d(TAG, "updatePeerMoneroAddress: peerID: $peerID, address: $address")
+        Log.d(TAG, "=== UPDATE PEER MONERO ADDRESS ===")
+        Log.d(TAG, "Input peerID: $peerID")
+        Log.d(TAG, "Input address: $address")
+        Log.d(TAG, "Is peerID hex: ${peerID.isHex()}")
+        Log.d(TAG, "Current selectedPrivatePeer: ${state.getSelectedPrivateChatPeerValue()}")
+        Log.d(TAG, "Current peerMoneroAddresses: ${_peerMoneroAddresses.value}")
 
-        val updatedMap = _peerMoneroAddresses.value.toMutableMap()        
-        if(peerID.isHex()) {
-            val nick = peerNicknames.value?.get(state.getSelectedPrivateChatPeerValue() ?: "") ?: ""
-            Log.d(TAG, "updatePeerMoneroAddress: nickname: $nick")
-            updatedMap[nick!!] = address
+        val updatedMap = _peerMoneroAddresses.value.toMutableMap()
+        
+        // CRITICAL FIX: The peerID from message.senderPeerID is the SENDER's ID
+        // We need to use selectedPrivatePeer as the key since that's who we're chatting with
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        
+        if (selectedPeer != null) {
+            // Store under the selected private chat peer ID
+            updatedMap[selectedPeer] = address
+            Log.i(TAG, "✓ Stored address for selectedPrivatePeer: $selectedPeer")
+            
+            // Also store by the sender's peerID for backward compatibility
+            if (peerID.isHex()) {
+                updatedMap[peerID] = address
+                Log.d(TAG, "Also stored address for senderPeerID: $peerID")
+            }
+            
+            // Also store by nickname for convenience
+            val nickname = peerNicknames.value?.get(selectedPeer)
+            if (nickname != null && nickname.isNotEmpty()) {
+                updatedMap[nickname] = address
+                Log.d(TAG, "Also stored address for nickname: $nickname (for convenience only)")
+            }
         } else {
+            // Fallback: No active private chat, store by peerID
+            Log.w(TAG, "No selectedPrivatePeer - storing by peerID")
             updatedMap[peerID] = address
         }
+        
         _peerMoneroAddresses.value = updatedMap
-        Log.d(TAG, "updatePeerMoneroAddress: peerMoneroAddresses: ${_peerMoneroAddresses.value}")
+        Log.d(TAG, "Updated peerMoneroAddresses: ${_peerMoneroAddresses.value}")
+        Log.d(TAG, "Map size: ${_peerMoneroAddresses.value.size}")
+        Log.d(TAG, "================================")
     }
             
     fun toggleFavorite(peerID: String) {
@@ -735,17 +787,34 @@ class ChatViewModel(
         return commandProcessor.selectMentionSuggestion(nickname, currentText)
     }
     
-    // MARK: - BluetoothMeshDelegate Implementation (delegated)
-    
+    // Enhanced didReceiveMessage in ChatViewModel.kt with better logging
     override fun didReceiveMessage(message: BitchatMessage) {
+        Log.d(TAG, "=== RECEIVED MESSAGE ===")
+        Log.d(TAG, "Sender: ${message.sender}")
+        Log.d(TAG, "SenderPeerID: ${message.senderPeerID}")
+        Log.d(TAG, "Content preview: ${message.content.take(50)}")
+        
         // Detect if this is a Monero address broadcast
-        if (message.content.startsWith("MY_MONERO_ADDRESS:")) {
-            val address = message.content.removePrefix("MY_MONERO_ADDRESS:")
-            updatePeerMoneroAddress(message.senderPeerID ?: message.sender, address)
-            Log.d(TAG, "Received Monero address from ${message.senderPeerID}: $address")
+        if (message.content.startsWith("[MONERO_ADDRESS]")) {
+            val address = message.content.removePrefix("[MONERO_ADDRESS]")
+            val senderIdentifier = message.senderPeerID ?: message.sender
+            
+            Log.i(TAG, "INFO— MONERO ADDRESS DETECTED!")
+            Log.i(TAG, "Address: $address")
+            Log.i(TAG, "From sender: $senderIdentifier")
+            
+            updatePeerMoneroAddress(senderIdentifier, address)
+            
+            // Also add system message for visibility
+            addSystemMessage("INFO— ${message.sender} shared Monero address")
+            
+            Log.d(TAG, "Address stored successfully")
         } else {
+            // Regular message handling
             meshDelegateHandler.didReceiveMessage(message)
         }
+        
+        Log.d(TAG, "=======================")
     }
     
     override fun didUpdatePeerList(peers: List<String>) {
