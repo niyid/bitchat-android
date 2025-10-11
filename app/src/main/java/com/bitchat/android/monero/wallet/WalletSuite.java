@@ -649,27 +649,88 @@ public class WalletSuite {
         lastRescanTime.set(System.currentTimeMillis());
         stopPeriodicSync();
         
-        Log.i(TAG, "=== INITIATING FULL BLOCKCHAIN RESCAN ===");
-        Log.i(TAG, "This will scan from block 1 to find all transactions");
-        
         syncExecutor.execute(() -> {
             try {
-                Log.d(TAG, "triggerRescan: Performing initial forward sync to initialize cache...");
                 String walletPath = wallet.getPath();
-                File unportableFile = new File(walletPath + ".unportable");
-                if (unportableFile.exists() && unportableFile.delete()) {
-                    Log.d(TAG, "✓ Deleted .unportable file");
-                }
-                // Do a quick forward refresh to current height to initialize cache structure
-                wallet.refreshAsync();
-                Thread.sleep(3000); // Give it time to initialize
                 
-                long currentHeight = wallet.getBlockChainHeight();
-                Log.i(TAG, "✓ Cache initialized at height: " + currentHeight);
-            
+                // Step 1: SKIP storing wallet state (it's corrupted!)
+                Log.d(TAG, "[1/5] Skipping store (cache is corrupted)");
+               
+                // Step 2: Close wallet cleanly
+                Log.d(TAG, "[2/5] Closing wallet...");
+                wallet.setListener(null);
+                wallet.close();
+                wallet = null;
+                Thread.sleep(1000); // Give JNI time to clean up
+                
+                // Step 3: Reopen wallet (creates fresh cache)
+                Log.d(TAG, "[3/5] Reopening wallet...");
+                wallet = walletManager.openWallet(walletPath);
+                if (wallet == null) {
+                    Log.e(TAG, "✗ CRITICAL: Failed to reopen wallet - ABORTING");
+                    currentState.set(WalletState.IDLE);
+                    startPeriodicSync();
+                    
+                    // Notify callback of failure
+                    if (rescanCallback != null) {
+                        final RescanCallback callback = rescanCallback;
+                        rescanCallback = null;
+                        mainHandler.post(() -> callback.onError("Failed to reopen wallet"));
+                    }
+                    return;
+                }
+                Log.i(TAG, "✓ Wallet reopened with fresh cache");
+                
+                // Step 6: Reconnect to daemon
+                Log.d(TAG, "[4/5] Reconnecting to daemon...");
+                try {
+                    Node node = walletManager.createNodeFromConfig();
+                    long handle = wallet.initJ(
+                        node.getAddress(), 0,
+                        node.getUsername(), node.getPassword(),
+                        node.isSsl(), false, ""
+                    );
+                    if (handle > 0) {
+                        Log.d(TAG, "✓ Daemon connected (handle: " + handle + ")");
+                    } else {
+                        Log.w(TAG, "Daemon init returned 0 (may still work)");
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Daemon reconnection error (continuing)", e);
+                }
+                
+                // Step 7: Set restore height to 1 and start rescan
+                Log.d(TAG, "[5/5] Initializing wallet cache and starting rescan...");
+                
+                // CRITICAL: We need to do a forward sync FIRST to initialize the cache
+                Log.d(TAG, "Step 5a: Performing initial forward sync to initialize cache...");
+                
+                try {
+                    // Do a quick forward refresh to current height to initialize cache structure
+                    wallet.refreshAsync();
+                    Thread.sleep(3000); // Give it time to initialize
+                    
+                    long currentHeight = wallet.getBlockChainHeight();
+                    Log.i(TAG, "✓ Cache initialized at height: " + currentHeight);
+                } catch (Exception e) {
+                    Log.w(TAG, "Initial refresh error (continuing)", e);
+                }
+                
                 // Start progress monitoring (this will handle state transition and callback)
                 mainHandler.postDelayed(this::monitorRescanProgress, 5000);
-              
+                
+            } catch (InterruptedException e) {
+                Log.w(TAG, "Rescan interrupted", e);
+                currentState.set(WalletState.IDLE);
+                startPeriodicSync();
+                Thread.currentThread().interrupt();
+                
+                // Notify callback of interruption
+                if (rescanCallback != null) {
+                    final RescanCallback callback = rescanCallback;
+                    rescanCallback = null;
+                    mainHandler.post(() -> callback.onError("Rescan interrupted"));
+                }
             } catch (Exception e) {
                 Log.e(TAG, "✗ Rescan failed with exception", e);
                 currentState.set(WalletState.IDLE);
@@ -685,7 +746,6 @@ public class WalletSuite {
             }
         });
     }    
-    
     private void notifyCallbackSuccess(final RescanCallback callback, final long balance, final long unlocked) {
         mainHandler.post(new Runnable() {
             @Override
@@ -803,7 +863,7 @@ public class WalletSuite {
         
         try {
             long height = wallet.getBlockChainHeight();
-            long daemonHeight = wallet.getDaemonBlockChainHeight();
+            long daemonHeight = wallet.getRestoreHeight();
             long balance = wallet.getBalance();
             long unlockedBalance = wallet.getUnlockedBalance();
             int txCount = wallet.getHistory().getCount();
@@ -1546,17 +1606,6 @@ public class WalletSuite {
         }
         
         long amountAtomic = (long) (amountXmr * 1e12);
-        final long[] latestBalance = {-1};
-        final long[] latestUnlockedBalance = {-1};
-        
-        // Set up callback to capture balance updates from rescan
-        RescanBalanceCallback balanceCapture = (balance, unlocked) -> {
-            latestBalance[0] = balance;
-            latestUnlockedBalance[0] = unlocked;
-            Log.d(TAG, "Captured updated balance from rescan: " + convertAtomicToXmr(unlocked) + " XMR unlocked");
-        };
-        
-        setRescanBalanceCallback(balanceCapture);
         
         syncExecutor.execute(() -> {
             try {
@@ -1564,33 +1613,44 @@ public class WalletSuite {
                 Log.d(TAG, "Destination: " + destinationAddress);
                 Log.d(TAG, "Amount: " + amountXmr + " XMR");
                 
-                // Trigger rescan to get fresh balance
-                Log.d(TAG, "Triggering rescan to refresh balance...");
-                triggerRescan();
-                
-                // Wait for balance to be updated (with timeout)
-                long startWait = System.currentTimeMillis();
-                long timeoutMs = 120000; // 2 minutes max wait
-                
-                while (latestUnlockedBalance[0] < 0 && 
-                       (System.currentTimeMillis() - startWait) < timeoutMs) {
+                // Step 1: Reinitialize wallet to clear corrupted state
+                Log.d(TAG, "[1/4] Reinitializing wallet...");
+                try {
+                    wallet.close();
+                    wallet = null;
                     Thread.sleep(500);
-                }
-                
-                // Clear the callback
-                setRescanBalanceCallback(null);
-                
-                if (latestUnlockedBalance[0] < 0) {
-                    String error = "Timeout waiting for balance update from rescan";
-                    Log.e(TAG, error);
-                    mainHandler.post(() -> callback.onError(error));
+                    
+                    wallet = walletManager.openWallet(currentWalletPath);
+                    if (wallet == null) {
+                        String error = "Failed to reopen wallet";
+                        Log.e(TAG, error);
+                        mainHandler.post(() -> callback.onError(error));
+                        return;
+                    }
+                    
+                    Node node = walletManager.createNodeFromConfig();
+                    long handle = wallet.initJ(
+                        node.getAddress(), 0,
+                        node.getUsername(), node.getPassword(),
+                        node.isSsl(), false, ""
+                    );
+                    Log.d(TAG, "✓ Wallet reinitialized (handle: " + handle + ")");
+                    Thread.sleep(1000);
+                    
+                } catch (Exception e) {
+                    Log.e(TAG, "✗ Wallet reinitialization error", e);
+                    mainHandler.post(() -> callback.onError("Wallet reinitialization failed: " + e.getMessage()));
                     return;
                 }
                 
-                long unlockedBalance = latestUnlockedBalance[0];
+                // Step 2: Read fresh balance from reinitialized wallet
+                Log.d(TAG, "[2/4] Reading balance from fresh wallet...");
+                long unlockedBalance = wallet.getUnlockedBalance();
+                long totalBalance = wallet.getBalance();
                 long requiredAtomic = amountAtomic + 1000000000L; // amount + ~0.001 XMR fee buffer
                 
-                Log.d(TAG, "Fresh balance from rescan: " + convertAtomicToXmr(unlockedBalance) + " XMR unlocked");
+                Log.d(TAG, "Fresh balance: " + convertAtomicToXmr(unlockedBalance) + " XMR unlocked, " +
+                           convertAtomicToXmr(totalBalance) + " total");
                 
                 if (unlockedBalance < requiredAtomic) {
                     String error = "Insufficient unlocked balance: " + 
@@ -1601,7 +1661,8 @@ public class WalletSuite {
                     return;
                 }
                 
-                Log.d(TAG, "Creating transaction...");
+                // Step 3: Create transaction
+                Log.d(TAG, "[3/4] Creating transaction...");
                 PendingTransaction pendingTx = wallet.createTransaction(
                     destinationAddress, "", amountAtomic, 0,
                     PendingTransaction.Priority.Priority_Default.ordinal()
@@ -1621,7 +1682,8 @@ public class WalletSuite {
                     return;
                 }
                 
-                Log.d(TAG, "Committing transaction...");
+                // Step 4: Commit transaction
+                Log.d(TAG, "[4/4] Committing transaction...");
                 boolean committed = pendingTx.commit("", true);
                 if (!committed) {
                     String error = pendingTx.getErrorString();
@@ -1646,7 +1708,6 @@ public class WalletSuite {
                 
             } catch (Exception e) {
                 Log.e(TAG, "✗ Transaction exception", e);
-                setRescanBalanceCallback(null);
                 mainHandler.post(() -> callback.onError("Transaction failed: " + e.getMessage()));
             } finally {
                 // CRITICAL: Always release the lock
