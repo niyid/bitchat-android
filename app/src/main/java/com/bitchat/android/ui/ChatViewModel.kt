@@ -25,6 +25,9 @@ import kotlinx.coroutines.withContext
 import java.util.*
 import kotlin.random.Random
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 import java.io.File
 import java.io.FileOutputStream
@@ -151,7 +154,12 @@ class ChatViewModel(
     var daemonConfigLoading by mutableStateOf(false)
         private set
         
-    val isWalletBusy: StateFlow<Boolean> = MutableStateFlow(false)    
+    private val _isWalletBusy = MutableStateFlow(false)
+    val isWalletBusy: StateFlow<Boolean> = _isWalletBusy.asStateFlow()
+
+    fun updateWalletBusyState(isBusy: Boolean) {
+        _isWalletBusy.value = isBusy
+    }
 
     fun showDaemonConfigDialog() {
         showDaemonConfigDialog = true
