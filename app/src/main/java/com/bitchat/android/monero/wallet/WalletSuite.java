@@ -89,6 +89,8 @@ public class WalletSuite {
     
     private final Object walletLock = new Object();
     
+    private volatile RescanBalanceCallback rescanBalanceCallback;
+    
     public interface WalletStatusListener {
         void onWalletInitialized(boolean success, String message);
         void onBalanceUpdated(long balance, long unlocked);
@@ -148,6 +150,10 @@ public class WalletSuite {
         void onError(String error);
     }
     
+    public interface RescanBalanceCallback {
+        void onBalanceUpdated(long balance, long unlockedBalance);
+    }
+    
     public static class SyncStatus {
         public final boolean syncing;
         public final long walletHeight;
@@ -177,6 +183,10 @@ public class WalletSuite {
         loadConfiguration();
         registerShutdownHandler();
     }
+    
+    public void setRescanBalanceCallback(RescanBalanceCallback callback) {
+        this.rescanBalanceCallback = callback;
+    }    
     
     public long getBalanceValue() {
         return balance.get();
@@ -795,6 +805,7 @@ public class WalletSuite {
             long height = wallet.getBlockChainHeight();
             long daemonHeight = wallet.getDaemonBlockChainHeight();
             long balance = wallet.getBalance();
+            long unlockedBalance = wallet.getUnlockedBalance();
             int txCount = wallet.getHistory().getCount();
             
             double progress = daemonHeight > 0 ? (height * 100.0 / daemonHeight) : 0;
@@ -802,7 +813,13 @@ public class WalletSuite {
             Log.i(TAG, "=== RESCAN PROGRESS ===");
             Log.i(TAG, "  Height: " + height + " / " + daemonHeight + " (" + String.format("%.1f", progress) + "%)");
             Log.i(TAG, "  Balance: " + convertAtomicToXmr(balance) + " XMR");
+            Log.i(TAG, "  Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR");
             Log.i(TAG, "  Transactions found: " + txCount);
+            
+            // NOTIFY any pending transaction of updated balances
+            if (rescanBalanceCallback != null) {
+                mainHandler.post(() -> rescanBalanceCallback.onBalanceUpdated(balance, unlockedBalance));
+            }
             
             // Check if rescan is complete
             if (height >= daemonHeight - 1 || progress >= 99.9) {
@@ -810,6 +827,7 @@ public class WalletSuite {
                 Log.i(TAG, "Final state:");
                 Log.i(TAG, "  - Height: " + height);
                 Log.i(TAG, "  - Balance: " + convertAtomicToXmr(balance) + " XMR");
+                Log.i(TAG, "  - Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR");
                 Log.i(TAG, "  - Transactions: " + txCount);
                 
                 // Store wallet state
@@ -819,9 +837,6 @@ public class WalletSuite {
                 } catch (Exception e) {
                     Log.w(TAG, "Failed to store wallet after rescan", e);
                 }
-                
-                // Get unlocked balance
-                long unlockedBalance = wallet.getUnlockedBalance();
                 
                 // Transition back to IDLE and restart periodic sync
                 currentState.set(WalletState.IDLE);
@@ -846,6 +861,9 @@ public class WalletSuite {
                     });
                 }
                 
+                // Clear the rescan balance callback
+                rescanBalanceCallback = null;
+                
                 return; // Stop monitoring
             }
             
@@ -856,6 +874,7 @@ public class WalletSuite {
             Log.e(TAG, "Error monitoring rescan progress", e);
             currentState.set(WalletState.IDLE);
             startPeriodicSync();
+            rescanBalanceCallback = null;
             
             // Notify callback of error
             if (rescanCallback != null) {
@@ -1526,25 +1545,57 @@ public class WalletSuite {
             return;
         }
         
+        long amountAtomic = (long) (amountXmr * 1e12);
+        final long[] latestBalance = {-1};
+        final long[] latestUnlockedBalance = {-1};
+        
+        // Set up callback to capture balance updates from rescan
+        RescanBalanceCallback balanceCapture = (balance, unlocked) -> {
+            latestBalance[0] = balance;
+            latestUnlockedBalance[0] = unlocked;
+            Log.d(TAG, "Captured updated balance from rescan: " + convertAtomicToXmr(unlocked) + " XMR unlocked");
+        };
+        
+        setRescanBalanceCallback(balanceCapture);
+        
         syncExecutor.execute(() -> {
             try {
                 Log.i(TAG, "=== SEND TRANSACTION ===");
                 Log.d(TAG, "Destination: " + destinationAddress);
                 Log.d(TAG, "Amount: " + amountXmr + " XMR");
                 
-                long amountAtomic = (long) (amountXmr * 1e12);
+                // Trigger rescan to get fresh balance
+                Log.d(TAG, "Triggering rescan to refresh balance...");
+                triggerRescan();
                 
-                // Refresh wallet before creating transaction
-                Log.d(TAG, "Refreshing wallet state before transaction...");
-                wallet.refreshAsync();
+                // Wait for balance to be updated (with timeout)
+                long startWait = System.currentTimeMillis();
+                long timeoutMs = 120000; // 2 minutes max wait
                 
-                // Double-check balance after refresh
-                long unlockedBalance = wallet.getUnlockedBalance();
+                while (latestUnlockedBalance[0] < 0 && 
+                       (System.currentTimeMillis() - startWait) < timeoutMs) {
+                    Thread.sleep(500);
+                }
+                
+                // Clear the callback
+                setRescanBalanceCallback(null);
+                
+                if (latestUnlockedBalance[0] < 0) {
+                    String error = "Timeout waiting for balance update from rescan";
+                    Log.e(TAG, error);
+                    mainHandler.post(() -> callback.onError(error));
+                    return;
+                }
+                
+                long unlockedBalance = latestUnlockedBalance[0];
                 long requiredAtomic = amountAtomic + 1000000000L; // amount + ~0.001 XMR fee buffer
                 
+                Log.d(TAG, "Fresh balance from rescan: " + convertAtomicToXmr(unlockedBalance) + " XMR unlocked");
+                
                 if (unlockedBalance < requiredAtomic) {
-                    String error = "Insufficient unlocked balance after refresh: " + 
-                                 WalletSuite.convertAtomicToXmr(unlockedBalance) + " XMR";
+                    String error = "Insufficient unlocked balance: " + 
+                                 convertAtomicToXmr(unlockedBalance) + " XMR (need " +
+                                 convertAtomicToXmr(requiredAtomic) + " XMR)";
                     Log.e(TAG, error);
                     mainHandler.post(() -> callback.onError(error));
                     return;
@@ -1595,6 +1646,7 @@ public class WalletSuite {
                 
             } catch (Exception e) {
                 Log.e(TAG, "✗ Transaction exception", e);
+                setRescanBalanceCallback(null);
                 mainHandler.post(() -> callback.onError("Transaction failed: " + e.getMessage()));
             } finally {
                 // CRITICAL: Always release the lock
