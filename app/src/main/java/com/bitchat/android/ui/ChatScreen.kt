@@ -43,6 +43,8 @@ import com.bitchat.android.monero.messaging.MoneroMessageHandler
 import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import java.math.BigInteger
 import java.text.SimpleDateFormat
 import java.util.*
@@ -50,6 +52,9 @@ import kotlin.collections.HashMap
 import android.util.Log
 
 import com.m2049r.xmrwallet.model.TransactionInfo
+
+import androidx.compose.runtime.rememberCoroutineScope
+import com.bitchat.android.monero.MoneroSendQueue
 
 //import com.bitchat.android.ui.TransactionSearchDialog
 //import com.bitchat.android.ui.PendingTransactionsSheet
@@ -82,7 +87,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val mentionSuggestions by viewModel.mentionSuggestions.observeAsState(emptyList())
     val showAppInfo by viewModel.showAppInfo.observeAsState(false)
 
-    // Monero-related state - FIXED: Properly observe ViewModel state
+    // Monero-related state
     val walletSuite = viewModel.walletSuite
     val moneroMessageHandler = viewModel.moneroMessageHandler
     val isMoneroModeActive = viewModel.isMoneroModeActive
@@ -110,7 +115,63 @@ fun ChatScreen(viewModel: ChatViewModel) {
     
     var showTransactionSearchDialog by remember { mutableStateOf(false) }
     var showPendingTransactionsSheet by remember { mutableStateOf(false) }
-    val pendingTransactions by viewModel.pendingTransactionSearches.observeAsState(emptySet())   
+    val pendingTransactions by viewModel.pendingTransactionSearches.observeAsState(emptySet())
+    
+    val sendQueue = remember(walletSuite) { MoneroSendQueue(walletSuite) }
+    val scope = rememberCoroutineScope()
+    
+    fun attemptMoneroSend(
+        amount: Double,
+        peer: String,
+        address: String,
+        walletSuite: WalletSuite?,
+        viewModel: ChatViewModel,
+        enqueueSend: (String, String, Double) -> Unit
+    ) { 
+        Log.d(TAG, "=== MONERO SEND INITIATED ===")
+        Log.d(TAG, "Amount to send: $amount")
+        Log.d(TAG, "Selected peer: $peer")
+        Log.d(TAG, "Receiver address: $address")
+        
+        viewModel.addSystemMessage(
+            "⏳ Preparing transaction of $amount XMR..."
+        )
+        
+        // Enqueue the send immediately - the queue will handle rescan and balance validation
+        enqueueSend(peer, address, amount)
+    }
+    
+    fun enqueueSendTransaction(peer: String, address: String, amount: Double) {
+        Log.d(TAG, "Enqueuing send transaction")
+        
+        sendQueue.enqueueSend(
+            peerId = peer,
+            address = address,
+            amount = amount,
+            onSuccess = { txHash: String ->
+                Log.d(TAG, "Send succeeded: $txHash")
+                viewModel.addSystemMessage(
+                    "✅ Sent $amount XMR successfully"
+                )
+                viewModel.addSystemMessage(
+                    "📝 Transaction ID: ${txHash.take(16)}..."
+                )
+            },
+            onError = { error: String ->
+                Log.e(TAG, "Send failed: $error")
+                viewModel.addSystemMessage(
+                    "❌ Payment failed: $error"
+                )
+            }
+        )
+    }    
+
+    // Cleanup when composable is disposed
+    DisposableEffect(Unit) {
+        onDispose {
+            sendQueue.cancelAll()
+        }
+    }
 
     // Initialize Monero components - SIMPLIFIED: Let WalletSuite handle initialization
     LaunchedEffect(Unit) {
@@ -335,25 +396,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             // Handle Monero send - FIXED: Use selectedPrivatePeer consistently
                             val receiverMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
                             Log.d(TAG, "Sending Monero to $selectedPrivatePeer with address: $receiverMoneroAddress")
-                            handleMoneroSend(
-                                amount = messageText.text.trim(),
+                            
+                            attemptMoneroSend(
+                                amount = messageText.text.toDoubleOrNull() ?: 0.0,
+                                peer = selectedPrivatePeer!!,
+                                address = receiverMoneroAddress!!,
                                 walletSuite = walletSuite,
-                                moneroChatTransferManager = moneroChatTransferManager,
-                                selectedPrivatePeer = selectedPrivatePeer,
-                                canReceiveMonero = canReceiveMonero,
-                                receiverMoneroAddress = receiverMoneroAddress,
                                 viewModel = viewModel,
-                                onSuccess = {
-                                    Log.d(TAG, "Monero of ${messageText.text.trim()} has been sent!")
-                                    messageText = TextFieldValue("")
-                                    viewModel.isMoneroModeActive = false
-                                    forceScrollToBottom = !forceScrollToBottom
-                                },
-                                onError = { error ->
-                                    Log.e(TAG, "An error of ${error} has occurred")
-                                    viewModel.addSystemMessage("❌ Payment error: $error")
-                                }
-                            )
+                                enqueueSend = ::enqueueSendTransaction
+                            )                            
                         } else {
                             // Handle regular message send
                             viewModel.sendMessage(messageText.text.trim())
@@ -551,7 +602,6 @@ fun ChatScreen(viewModel: ChatViewModel) {
     )    
 }
 
-// ENHANCED: Monero send handler function with balance checking and extensive logging
 private fun handleMoneroSend(
     amount: String,
     walletSuite: WalletSuite?,
@@ -751,11 +801,10 @@ private fun handleMoneroSend(
                             viewModel.addSystemMessage("✅ Sent $sentAmountXmr XMR")
                             viewModel.addSystemMessage("📝 TX: ${txId.take(16)}...")
                             
-                            // Share transaction ID with peer via MoneroChatTransferManager
-                            moneroChatTransferManager?.handleTransactionIdShare(
-                                txId = txId,
-                                receiverPeerId = selectedPrivatePeer
-                            )
+                            // Share transaction ID with peer via direct message
+                            // Format: [TX_ID:txid]
+                            val txMessage = "[TX_ID:$txId]"
+                            viewModel.sendDirectMessage(selectedPrivatePeer, txMessage)
                             
                             onSuccess()
                         }
@@ -1436,3 +1485,4 @@ data class LocationChannel(
     val memberCount: Int,
     val geohash: String
 )
+
