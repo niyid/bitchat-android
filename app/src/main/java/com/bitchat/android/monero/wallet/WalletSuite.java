@@ -568,7 +568,8 @@ public class WalletSuite {
             
             // Check if rescan needed (only after successful sync to daemon height)
             if (success && percent >= 99.0) {
-                checkAndTriggerRescan(walletHeight, daemonHeight);
+                triggerRescan();
+                //checkAndTriggerRescan(walletHeight, daemonHeight);
             }
             
             // ONLY persist if balance is valid (non-zero or we have no transactions)
@@ -592,70 +593,6 @@ public class WalletSuite {
             return (allTxs != null) ? allTxs.size() : 0;
         } catch (Exception e) {
             return 0;
-        }
-    }
-
-    /**
-     * Checks if rescan is needed and triggers it
-     * ONLY called after wallet is fully synced to avoid false positives
-     */
-    private void checkAndTriggerRescan(long walletHeight, long daemonHeight) {
-        // Cooldown check
-        long timeSinceLastRescan = System.currentTimeMillis() - lastRescanTime.get();
-        if (lastRescanTime.get() > 0 && timeSinceLastRescan < RESCAN_COOLDOWN_MS) {
-            Log.d(TAG, "Rescan on cooldown (" + (timeSinceLastRescan / 1000) + "s ago)");
-            return;
-        }
-        
-        try {
-            TransactionHistory history = wallet.getHistory();
-            if (history == null) {
-                Log.e(TAG, "Transaction history is NULL - triggering rescan");
-                triggerRescan();
-                return;
-            }
-            
-            history.refresh();
-            List<TransactionInfo> allTxs = history.getAll();
-            int txCount = (allTxs != null) ? allTxs.size() : 0;
-            long currentBalance = balance.get();
-            
-            Log.d(TAG, "Rescan check: txCount=" + txCount + ", balance=" + (currentBalance / 1e12) + " XMR");
-            
-            // CRITICAL BUG DETECTION: Transactions exist but balance is zero
-            if (txCount > 0 && currentBalance == 0) {
-                Log.w(TAG, "⚠⚠⚠ MONERUJO CACHE BUG DETECTED ⚠⚠⚠");
-                Log.w(TAG, "Transactions found but balance is ZERO - triggering rescan");
-                triggerRescan();
-                return;
-            }
-
-            // Secondary check: Balance exists but no transactions
-            if (txCount == 0 && currentBalance > 0) {
-                Log.w(TAG, "⚠ Balance exists but no transactions - triggering rescan");
-                triggerRescan();
-                return;
-            }
-
-            // NEW: Skip rescan if wallet already healthy and recent backup exists
-            File walletFile = new File(wallet.getPath());
-            File walletDir = walletFile.getParentFile();
-            File[] recentBackups = walletDir.listFiles((dir, name) ->
-                    name.startsWith(walletFile.getName() + ".bak."));
-            boolean recentBackup = recentBackups != null && recentBackups.length > 0;
-
-            if (txCount > 0 && currentBalance > 0) {
-                Log.i(TAG, "✓ Wallet healthy: balance=" + (currentBalance / 1e12)
-                        + " XMR, txCount=" + txCount
-                        + (recentBackup ? " (recent backup found)" : ""));
-                Log.i(TAG, "Skipping rescan.");
-                return;
-            }
-
-            Log.d(TAG, "✓ Wallet state is consistent - no rescan needed");
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error checking rescan need", e);
         }
     }
 
