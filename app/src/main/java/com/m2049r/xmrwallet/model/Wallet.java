@@ -1,4 +1,5 @@
 package com.m2049r.xmrwallet.model;
+import com.m2049r.xmrwallet.data.TxData;
 
 import android.util.Log;
 
@@ -15,6 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *       to exist elsewhere in the project so wallet.setListener(...) calls use the same type.
  */
 public class Wallet {
+    final static public long SWEEP_ALL = Long.MAX_VALUE;
     private static final String TAG = "com.bitchat.Wallet";
     private static final long RESCAN_TIMEOUT_MS = 10 * 60 * 1000L;
 
@@ -68,6 +70,7 @@ public class Wallet {
     /* ------------------------------------------------------------------------
      * Native method declarations
      * --------------------------------------------------------------------- */
+     
     public static native boolean walletExists(String path);
     public static native Wallet openWallet(String path, String password, int networkType);
     public static native Wallet createWalletJ(String path, String password, String language, int networkType, long restoreHeight);
@@ -100,7 +103,7 @@ public class Wallet {
     public native boolean isSynchronized();
     public native String getDisplayAmount(long amount);
     public native long getAmountFromString(String amount);
-    public native long getAmountFromDouble(double amount);
+    public static native long getAmountFromDouble(double amount);
     public native void setRefreshFromBlockHeight(long height);
     public native long getRefreshFromBlockHeight();
     public native void setRestoreHeight(long height);
@@ -116,9 +119,40 @@ public class Wallet {
     public native void pauseRefresh();
     public native boolean isRefreshing();
 
-    public native String submitTransaction(String txData);
-    public native PendingTransaction createTransactionJ(String dstAddr, String paymentId, long amount, int mixinCount, int priority);
-    public native PendingTransaction createSweepTransaction(String dstAddr, String paymentId, int mixinCount, int priority, int accountIndex);
+
+    private PendingTransaction pendingTransaction = null;
+
+    public PendingTransaction getPendingTransaction() {
+        return pendingTransaction;
+    }
+
+    public void disposePendingTransaction() {
+        if (pendingTransaction != null) {
+            disposeTransaction(pendingTransaction);
+            pendingTransaction = null;
+        }
+    }
+
+    private native long createTransactionMultDest(String[] destinations, String payment_id, long[] amounts, int mixin_count, int priority, int accountIndex, int[] subaddresses);
+
+    public PendingTransaction createTransaction(TxData txData) {
+        disposePendingTransaction();
+        int _priority = txData.getPriority().getValue();
+        final boolean sweepAll = txData.getAmount() == SWEEP_ALL;
+        long txHandle = (sweepAll ? createSweepTransaction(txData.getDestination(), "", txData.getMixin(), _priority, accountIndex) :
+                createTransactionMultDest(txData.getDestinations(), "", txData.getAmounts(), txData.getMixin(), _priority, accountIndex, txData.getSubaddresses()));
+        pendingTransaction = new PendingTransaction(txHandle);
+        return pendingTransaction;
+    }
+
+    private native long createTransactionJ(String dst_addr, String payment_id, long amount, int mixin_count, int priority, int accountIndex);
+    
+    public long createTransaction(String dst_addr, String payment_id, long amount, int mixin_count, int priority, int accountIndex) {
+    return createTransactionJ(dst_addr, payment_id, amount, mixin_count, priority, accountIndex);
+}    
+
+    private native long createSweepTransaction(String dst_addr, String payment_id, int mixin_count, int priority, int accountIndex);
+
     public native PendingTransaction createSweepUnmixableTransaction();
     public native void disposeTransaction(PendingTransaction pendingTransaction);
     public native boolean setUserNote(String txid, String note);
@@ -178,6 +212,14 @@ public class Wallet {
     public native boolean isMultisig();
     public native String signMultisigTxHex(String multisigTxHex);
     public native String[] submitMultisigTxHex(String multisigTxHex);
+    public native String submitTransaction(String hex);
+    
+    public long estimateTransactionFee(TxData txData) {
+        return estimateTransactionFee(txData.getDestinations(), txData.getAmounts(), txData.getPriority().getValue());
+    }
+
+    private native long estimateTransactionFee(String[] destinations, long[] amounts, int priority);
+    
 
     public native void setListenerJ(WalletListener listener);
 
@@ -372,10 +414,6 @@ public class Wallet {
      * ------------------------------------------------------------------ */
     private boolean isInitialized() {
         return handle != 0;
-    }
-
-    public PendingTransaction createTransaction(String dstAddr, String paymentId, long amount, int mixinCount, int priority) {
-        return createTransactionJ(dstAddr, paymentId, amount, mixinCount, priority);
     }
 
     public int getLastStatus() {

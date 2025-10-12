@@ -108,8 +108,8 @@ JNIEXPORT void JNICALL Java_com_m2049r_xmrwallet_model_Wallet_refreshHistory
  * Method:    createTransaction
  * Signature: (Ljava/lang/String;Ljava/lang/String;JII)Lcom/m2049r/xmrwallet/model/PendingTransaction;
  */
-JNIEXPORT jobject JNICALL Java_com_m2049r_xmrwallet_model_Wallet_createTransaction
-  (JNIEnv *, jobject, jstring, jstring, jlong, jint, jint);
+JNIEXPORT jobject JNICALL Java_com_m2049r_xmrwallet_model_Wallet_createTransactionJ
+  (JNIEnv *, jobject, jstring, jstring, jlong, jint, jint, jint);
 
 /*
  * Class:     com_m2049r_xmrwallet_model_Wallet
