@@ -91,6 +91,11 @@ public class WalletSuite {
     
     private volatile RescanBalanceCallback rescanBalanceCallback;
     
+    private volatile boolean transactionInProgress = false;
+    private final Object transactionLock = new Object();
+    private long transactionStartTime = 0;
+    
+    
     public interface WalletStatusListener {
         void onWalletInitialized(boolean success, String message);
         void onBalanceUpdated(long balance, long unlocked);
@@ -605,29 +610,6 @@ public class WalletSuite {
             return 0;
         }
     }
-
-    public void forceRescan(final RescanCallback callback) {
-        Log.d(TAG, "forceRescan called with callback");
-        this.rescanCallback = callback;
-
-        executorService.execute(() -> {
-            synchronized (walletLock) {
-                try {
-                    Log.i(TAG, "=== FORCE RESCAN REQUESTED ===");
-                    Log.i(TAG, "Delegating to triggerRescan()...");
-
-                    triggerRescan();  // ✅ Simplified call
-
-                } catch (Exception e) {
-                    Log.e(TAG, "✗ forceRescan failed", e);
-                    if (callback != null) {
-                        final String error = e.getMessage() != null ? e.getMessage() : "Unknown error";
-                        mainHandler.post(() -> callback.onError("Rescan failed: " + error));
-                    }
-                }
-            }
-        });
-    }
     
     /**
      * Triggers a rescan as a result of a Monerujo bug
@@ -659,6 +641,16 @@ public class WalletSuite {
                 // Step 2: Close wallet cleanly
                 Log.d(TAG, "[2/5] Closing wallet...");
                 wallet.setListener(null);
+                try {
+                    // CRITICAL: Persist fresh state before destructive rescan
+                    if (wallet != null && !currentWalletPath.isEmpty()) {
+                        wallet.store(currentWalletPath);
+                        Log.i(TAG, " Wallet persisted before rescan");
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to persist before rescan", e);
+                    // Continue anyway
+                }                
                 wallet.close();
                 wallet = null;
                 Thread.sleep(1000); // Give JNI time to clean up
@@ -787,69 +779,6 @@ public class WalletSuite {
         }
     }
     
-    // Add method to create and send transaction
-    public String createAndSendTransaction(String address, double amount) throws Exception {
-        synchronized (walletLock) {
-            if (wallet == null) {
-                throw new IllegalStateException("Wallet not initialized");
-            }
-            
-            long amountAtomic = (long) (amount * 1e12);
-            
-            Log.d(TAG, "=== CREATING TRANSACTION ===");
-            Log.d(TAG, "To: " + address);
-            Log.d(TAG, "Amount: " + amountAtomic + " atomic units (" + amount + " XMR)");
-            
-            // Get current balance for logging
-            long currentBalance = wallet.getBalance();
-            long currentUnlocked = wallet.getUnlockedBalance();
-            Log.d(TAG, "Current wallet balance: " + currentBalance + " (" + currentUnlocked + " unlocked)");
-            String txHash = null;
-            
-            try {
-                // Create transaction
-                PendingTransaction pendingTx;
-                synchronized (walletLock) {
-                    pendingTx = wallet.createTransaction(
-                        address,
-                        "",                 // paymentId — empty if unused
-                        amountAtomic,       // amount in atomic units
-                        10,                 // mixinCount (typical default)
-                        PendingTransaction.Priority.Priority_Medium.ordinal() // or your enum constant if applicable
-                    );
-                }    
-                
-                if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
-                    String error = pendingTx.getErrorString();
-                    throw new Exception("Transaction creation failed: " + error);
-                }
-                
-                Log.d(TAG, "Transaction created, fee: " + pendingTx.getFee() + " atomic units");
-                
-                // Commit transaction
-                boolean committed = pendingTx.commit("", true);
-                txHash = pendingTx.getFirstTxId();
-                
-                Log.d(TAG, "✅ Transaction committed: " + txHash);
-            } catch(Exception e) {
-                Log.e(TAG, "Failed to persist wallet: " + e.getMessage());
-                e.printStackTrace();
-            } catch(Error e) {
-                Log.e(TAG, "Failed to persist wallet: " + e.getMessage());
-                e.printStackTrace();
-            }
-            // Persist wallet state
-            try {
-                wallet.store();
-                Log.d(TAG, "Wallet state persisted");
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to persist wallet: " + e.getMessage());
-            }
-            
-            return txHash;
-        }
-    }
-    
     /**
      * Monitors rescan progress with visible updates
      * Shows progress every check until complete
@@ -857,7 +786,7 @@ public class WalletSuite {
      */
     private void monitorRescanProgress() {
         if (currentState.get() != WalletState.RESCANNING || wallet == null) {
-            Log.d(TAG, "Rescan monitoring stopped - state changed or wallet null");
+            Log.d(TAG, "@monitorRescanProgress Rescan monitoring stopped - state changed or wallet null");
             return;
         }
         
@@ -870,11 +799,11 @@ public class WalletSuite {
             
             double progress = daemonHeight > 0 ? (height * 100.0 / daemonHeight) : 0;
             
-            Log.i(TAG, "=== RESCAN PROGRESS ===");
-            Log.i(TAG, "  Height: " + height + " / " + daemonHeight + " (" + String.format("%.1f", progress) + "%)");
-            Log.i(TAG, "  Balance: " + convertAtomicToXmr(balance) + " XMR");
-            Log.i(TAG, "  Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR");
-            Log.i(TAG, "  Transactions found: " + txCount);
+            Log.i(TAG, "@monitorRescanProgress === RESCAN PROGRESS ===");
+            Log.i(TAG, "@monitorRescanProgress  Height: " + height + " / " + daemonHeight + " (" + String.format("%.1f", progress) + "%)");
+            Log.i(TAG, "@monitorRescanProgress  Balance: " + convertAtomicToXmr(balance) + " XMR");
+            Log.i(TAG, "@monitorRescanProgress  Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR");
+            Log.i(TAG, "@monitorRescanProgress  Transactions found: " + txCount);
             
             // NOTIFY any pending transaction of updated balances
             if (rescanBalanceCallback != null) {
@@ -883,19 +812,19 @@ public class WalletSuite {
             
             // Check if rescan is complete
             if (height >= daemonHeight - 1 || progress >= 99.9) {
-                Log.i(TAG, "✓✓✓ RESCAN COMPLETE ✓✓✓");
-                Log.i(TAG, "Final state:");
-                Log.i(TAG, "  - Height: " + height);
-                Log.i(TAG, "  - Balance: " + convertAtomicToXmr(balance) + " XMR");
-                Log.i(TAG, "  - Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR");
-                Log.i(TAG, "  - Transactions: " + txCount);
+                Log.i(TAG, "@monitorRescanProgress ✓✓✓ RESCAN COMPLETE ✓✓✓");
+                Log.i(TAG, "@monitorRescanProgress Final state:");
+                Log.i(TAG, "@monitorRescanProgress  - Height: " + height);
+                Log.i(TAG, "@monitorRescanProgress  - Balance: " + convertAtomicToXmr(balance) + " XMR");
+                Log.i(TAG, "@monitorRescanProgress  - Unlocked: " + convertAtomicToXmr(unlockedBalance) + " XMR");
+                Log.i(TAG, "@monitorRescanProgress  - Transactions: " + txCount);
                 
                 // Store wallet state
                 try {
                     wallet.store();
-                    Log.d(TAG, "Wallet was already persisted immediately after rescan");
+                    Log.d(TAG, "@monitorRescanProgress Wallet was already persisted immediately after rescan");
                 } catch (Exception e) {
-                    Log.w(TAG, "Failed to store wallet after rescan", e);
+                    Log.w(TAG, "@monitorRescanProgress Failed to store wallet after rescan", e);
                 }
                 
                 // Transition back to IDLE and restart periodic sync
@@ -916,7 +845,7 @@ public class WalletSuite {
                     final long finalBalance = balance;
                     final long finalUnlockedBalance = unlockedBalance;
                     mainHandler.post(() -> {
-                        Log.d(TAG, "Invoking rescan callback with balance: " + convertAtomicToXmr(finalUnlockedBalance) + " XMR");
+                        Log.d(TAG, "@monitorRescanProgress Invoking rescan callback with balance: " + convertAtomicToXmr(finalUnlockedBalance) + " XMR");
                         callback.onComplete(finalBalance, finalUnlockedBalance);
                     });
                 }
@@ -941,7 +870,7 @@ public class WalletSuite {
                 final RescanCallback callback = rescanCallback;
                 rescanCallback = null;
                 final String error = e.getMessage() != null ? e.getMessage() : "Unknown error";
-                mainHandler.post(() -> callback.onError("Rescan monitoring failed: " + error));
+                mainHandler.post(() -> callback.onError("@monitorRescanProgress Rescan monitoring failed: " + error));
             }
         }
     }
@@ -1569,149 +1498,451 @@ public class WalletSuite {
                wallet.getStatus() == Wallet.Status.Status_Ok.ordinal();
     }
 
-    public void sendTransaction(String destinationAddress, double amountXmr, TransactionCallback callback) {
+    /**
+     * Gracefully terminates all sync/rescan operations
+     * and prevents new ones from starting
+     */
+    private void haltAllScanOperations() {
+        Log.i(TAG, "╔════════════════════════════════════════════════════════════════╗");
+        Log.i(TAG, "║ HALTING ALL SCAN OPERATIONS - TRANSACTION STARTING             ║");
+        Log.i(TAG, "╚════════════════════════════════════════════════════════════════╝");
+        
+        long timestamp = System.currentTimeMillis();
+        Log.i(TAG, "[HALT] Timestamp: " + timestamp);
+        Log.i(TAG, "[HALT] Current state before halt: " + currentState.get());
+        Log.i(TAG, "[HALT] Periodic sync task active: " + (periodicSyncTask != null && !periodicSyncTask.isDone()));
+        Log.i(TAG, "[HALT] Current sync timeout active: " + (currentSyncTimeout != null && !currentSyncTimeout.isDone()));
+        
+        // Prevent new syncs from starting
+        transactionInProgress = true;
+        Log.i(TAG, "[HALT]  Set transactionInProgress = true");
+        
+        // Stop periodic sync
+        if (periodicSyncTask != null && !periodicSyncTask.isDone()) {
+            Log.i(TAG, "[HALT] Stopping periodic sync scheduler...");
+            stopPeriodicSync();
+            Log.i(TAG, "[HALT]  Periodic sync stopped");
+        } else {
+            Log.i(TAG, "[HALT] ℹ Periodic sync already stopped or null");
+        }
+        
+        // Cancel any pending sync timeout
+        if (currentSyncTimeout != null && !currentSyncTimeout.isDone()) {
+            Log.i(TAG, "[HALT] Cancelling pending sync timeout...");
+            currentSyncTimeout.cancel(false);
+            currentSyncTimeout = null;
+            Log.i(TAG, "[HALT]  Sync timeout cancelled");
+        } else {
+            Log.i(TAG, "[HALT] ℹ No sync timeout to cancel");
+        }
+        
+        // If a sync/rescan is currently running, force it to IDLE state
+        WalletState state = currentState.get();
+        Log.i(TAG, "[HALT] Checking current wallet state: " + state);
+        
+        if (state == WalletState.SYNCING) {
+            Log.i(TAG, "[HALT] ⚠ INTERRUPTING ACTIVE SYNC OPERATION");
+            Log.i(TAG, "[HALT] Force transitioning SYNCING -> IDLE");
+            currentState.set(WalletState.IDLE);
+            Log.i(TAG, "[HALT]  Sync operation forcefully interrupted");
+        } else if (state == WalletState.RESCANNING) {
+            Log.i(TAG, "[HALT] ⚠ INTERRUPTING ACTIVE RESCAN OPERATION");
+            Log.i(TAG, "[HALT] Force transitioning RESCANNING -> IDLE");
+            currentState.set(WalletState.IDLE);
+            rescanCallback = null;
+            Log.i(TAG, "[HALT]  Cleared rescanCallback");
+            rescanBalanceCallback = null;
+            Log.i(TAG, "[HALT]  Cleared rescanBalanceCallback");
+        } else if (state == WalletState.CLOSING) {
+            Log.w(TAG, "[HALT] ⚠ Wallet is in CLOSING state during transaction - unexpected!");
+        } else {
+            Log.i(TAG, "[HALT] ℹ Wallet state is already IDLE, no interruption needed");
+        }
+        
+        Log.i(TAG, "[HALT] Final state: " + currentState.get());
+        Log.i(TAG, "╔════════════════════════════════════════════════════════════════╗");
+        Log.i(TAG, "║ ALL SCAN OPERATIONS HALTED - TRANSACTION CAN NOW PROCEED       ║");
+        Log.i(TAG, "╚════════════════════════════════════════════════════════════════╝");
+    }
+
+    /**
+     * Resumes normal sync operations after transaction completes
+     */
+    private void resumeNormalSyncOperations() {
+        long timestamp = System.currentTimeMillis();
+        long elapsedMs = timestamp - transactionStartTime;
+        
+        Log.i(TAG, "╔════════════════════════════════════════════════════════════════╗");
+        Log.i(TAG, "║ RESUMING NORMAL SYNC OPERATIONS - TRANSACTION COMPLETE         ║");
+        Log.i(TAG, "╚════════════════════════════════════════════════════════════════╝");
+        Log.i(TAG, "[RESUME] Timestamp: " + timestamp);
+        Log.i(TAG, "[RESUME] Transaction elapsed time: " + elapsedMs + "ms (" + (elapsedMs/1000.0) + "s)");
+        
+        transactionInProgress = false;
+        Log.i(TAG, "[RESUME]  Set transactionInProgress = false");
+        Log.i(TAG, "[RESUME] Current wallet state: " + currentState.get());
+        
+        Log.i(TAG, "[RESUME] Starting periodic sync scheduler...");
+        startPeriodicSync();
+        Log.i(TAG, "[RESUME]  Periodic sync scheduler restarted");
+        
+        Log.i(TAG, "╔════════════════════════════════════════════════════════════════╗");
+        Log.i(TAG, "║ SYNC OPERATIONS RESUMED - NORMAL OPERATION RESTORED            ║");
+        Log.i(TAG, "╚════════════════════════════════════════════════════════════════╝");
+    }
+
+    /**
+     * Modified sendTransaction with cached balance parameters
+     * BLOCKS ALL OTHER OPERATIONS until complete
+     */
+    public void sendTransaction(
+        String destinationAddress, 
+        double amountXmr, 
+        long cachedBalance,
+        long cachedUnlockedBalance,
+        TransactionCallback callback
+    ) {
+        transactionStartTime = System.currentTimeMillis();
+        
+        Log.i(TAG, "╔═══════════════════════════════════════════════════════════╗");
+        Log.i(TAG, "║ SEND TRANSACTION REQUEST RECEIVED                              ║");
+        Log.i(TAG, "╚═══════════════════════════════════════════════════════════╝");
+        Log.i(TAG, "[TX_START] Timestamp: " + transactionStartTime);
+        Log.i(TAG, "[TX_START] Destination: " + destinationAddress.substring(0, Math.min(20, destinationAddress.length())) + "...");
+        Log.i(TAG, "[TX_START] Amount: " + amountXmr + " XMR");
+        Log.i(TAG, "[TX_START] Cached Balance: " + convertAtomicToXmr(cachedBalance) + " XMR");
+        Log.i(TAG, "[TX_START] Cached Unlocked: " + convertAtomicToXmr(cachedUnlockedBalance) + " XMR");
+        
         // Check basic initialization
         if (!isInitialized || wallet == null) {
+            Log.e(TAG, "[TX_START] ✗ Wallet not initialized");
+            Log.e(TAG, "[TX_START] isInitialized: " + isInitialized + ", wallet null: " + (wallet == null));
             callback.onError("Wallet not ready");
             return;
         }
+        Log.i(TAG, "[TX_START] ✓ Wallet is initialized");
+        
+        // Prevent recursive transaction attempts
+        if (transactionInProgress) {
+            Log.e(TAG, "[TX_START] ✗ BLOCKED: Transaction already in progress!");
+            Log.e(TAG, "[TX_START] transactionInProgress flag is TRUE");
+            callback.onError("Transaction already in progress");
+            return;
+        }
+        Log.i(TAG, "[TX_START] ✓ No existing transaction in progress");
         
         // CRITICAL: Check wallet state machine
         WalletState state = currentState.get();
+        Log.i(TAG, "[TX_START] Current wallet state: " + state);
+        
         if (state != WalletState.IDLE) {
             String error = "Cannot send transaction - wallet is " + state + 
                           ". Please wait for current operation to complete.";
-            Log.w(TAG, error);
+            Log.e(TAG, "[TX_START] ✗ BLOCKED: Wallet not in IDLE state");
+            Log.e(TAG, "[TX_START] " + error);
             mainHandler.post(() -> callback.onError(error));
             return;
         }
+        Log.i(TAG, "[TX_START] ✓ Wallet is in IDLE state");
         
         // CRITICAL: Verify wallet status
         int status = wallet.getStatus();
+        Log.i(TAG, "[TX_START] Wallet status code: " + status);
         if (status != Wallet.Status.Status_Ok.ordinal()) {
             String statusName = (status < Wallet.Status.values().length)
                     ? Wallet.Status.values()[status].name() : "UNKNOWN";
             String error = "Wallet not in OK state: " + statusName;
-            Log.w(TAG, error);
+            Log.e(TAG, "[TX_START] ✗ BLOCKED: Wallet status not OK");
+            Log.e(TAG, "[TX_START] " + error);
             mainHandler.post(() -> callback.onError(error));
             return;
+        }
+        Log.i(TAG, "[TX_START] ✓ Wallet status is OK");
+        
+        // Mark transaction in progress and halt all scans
+        Log.i(TAG, "[TX_START] Acquiring transactionLock to halt scans...");
+        synchronized (transactionLock) {
+            Log.i(TAG, "[TX_START] ✓ transactionLock acquired");
+            haltAllScanOperations();
         }
         
         // Now mark wallet as busy for the transaction
+        Log.i(TAG, "[TX_START] Attempting state transition: IDLE -> SYNCING");
         if (!currentState.compareAndSet(WalletState.IDLE, WalletState.SYNCING)) {
             String error = "Failed to acquire wallet lock for transaction";
-            Log.w(TAG, error);
+            Log.e(TAG, "[TX_START] ✗ FAILED: Could not transition to SYNCING state");
+            Log.e(TAG, "[TX_START] Current state is now: " + currentState.get());
+            Log.e(TAG, "[TX_START] " + error);
+            resumeNormalSyncOperations();
             mainHandler.post(() -> callback.onError(error));
             return;
         }
+        Log.i(TAG, "[TX_START] ✓ State transition successful: now in SYNCING state");
         
         long amountAtomic = (long) (amountXmr * 1e12);
         
         syncExecutor.execute(() -> {
             try {
-                Log.i(TAG, "=== SEND TRANSACTION ===");
-                Log.d(TAG, "Destination: " + destinationAddress);
-                Log.d(TAG, "Amount: " + amountXmr + " XMR");
+                Log.i(TAG, "╔═══════════════════════════════════════════════════════════╗");
+                Log.i(TAG, "║ TRANSACTION EXECUTION STARTED ON BACKGROUND THREAD             ║");
+                Log.i(TAG, "╚═══════════════════════════════════════════════════════════╝");
+                Log.i(TAG, "[TX_EXEC] Thread: " + Thread.currentThread().getName());
+                Log.i(TAG, "[TX_EXEC] All scans are halted - proceeding safely");
                 
                 // Step 1: Reinitialize wallet to clear corrupted state
-                Log.d(TAG, "[1/4] Reinitializing wallet...");
+                Log.i(TAG, "[TX_EXEC] [1/4] REINITIALIZING WALLET");
+                Log.i(TAG, "[TX_EXEC] Closing current wallet instance...");
                 try {
                     wallet.close();
+                    Log.i(TAG, "[TX_EXEC] ✓ Wallet closed");
                     wallet = null;
-                    Thread.sleep(500);
+                    Log.i(TAG, "[TX_EXEC] ✓ Wallet reference nullified");
                     
+                    Thread.sleep(500);
+                    Log.i(TAG, "[TX_EXEC] ✓ Waited 500ms for JNI cleanup");
+                    
+                    Log.i(TAG, "[TX_EXEC] Opening wallet from: " + currentWalletPath);
                     wallet = walletManager.openWallet(currentWalletPath);
                     if (wallet == null) {
-                        String error = "Failed to reopen wallet";
-                        Log.e(TAG, error);
+                        String error = "Failed to reopen wallet - walletManager returned null";
+                        Log.e(TAG, "[TX_EXEC] ✗ " + error);
                         mainHandler.post(() -> callback.onError(error));
                         return;
                     }
+                    Log.i(TAG, "[TX_EXEC] ✓ Wallet reopened successfully");
                     
+                    Log.i(TAG, "[TX_EXEC] Creating node from config...");
                     Node node = walletManager.createNodeFromConfig();
+                    Log.i(TAG, "[TX_EXEC] ✓ Node created: " + node.getAddress() + ":" + node.getRpcPort());
+                    
+                    Log.i(TAG, "[TX_EXEC] Calling wallet.initJ()...");
                     long handle = wallet.initJ(
                         node.getAddress(), 0,
                         node.getUsername(), node.getPassword(),
                         node.isSsl(), false, ""
                     );
-                    Log.d(TAG, "✓ Wallet reinitialized (handle: " + handle + ")");
+                    Log.i(TAG, "[TX_EXEC] ✓ Wallet reinitialized with handle: " + handle);
+                    
                     Thread.sleep(1000);
+                    Log.i(TAG, "[TX_EXEC] ✓ Waited 1000ms for daemon connection");
                     
                 } catch (Exception e) {
-                    Log.e(TAG, "✗ Wallet reinitialization error", e);
+                    Log.e(TAG, "[TX_EXEC] ✗ Wallet reinitialization exception", e);
+                    Log.e(TAG, "[TX_EXEC] Error: " + e.getMessage());
                     mainHandler.post(() -> callback.onError("Wallet reinitialization failed: " + e.getMessage()));
                     return;
                 }
                 
-                // Step 2: Read fresh balance from reinitialized wallet
-                Log.d(TAG, "[2/4] Reading balance from fresh wallet...");
-                long unlockedBalance = wallet.getUnlockedBalance();
-                long totalBalance = wallet.getBalance();
-                long requiredAtomic = amountAtomic + 1000000000L; // amount + ~0.001 XMR fee buffer
+                // Step 2: USE CACHED BALANCE INSTEAD OF wallet.getBalance()
+                Log.i(TAG, "[TX_EXEC] [2/4] USING CACHED BALANCE");
+                long unlockedBalance = cachedUnlockedBalance;
+                long totalBalance = cachedBalance;
+                Log.i(TAG, "[TX_EXEC] ✓ Cached unlocked balance: " + convertAtomicToXmr(unlockedBalance) + " XMR");
+                Log.i(TAG, "[TX_EXEC] ✓ Cached total balance: " + convertAtomicToXmr(totalBalance) + " XMR");
                 
-                Log.d(TAG, "Fresh balance: " + convertAtomicToXmr(unlockedBalance) + " XMR unlocked, " +
-                           convertAtomicToXmr(totalBalance) + " total");
+                long requiredAtomic = amountAtomic + 1000000000L; // +~0.001 XMR fee buffer
+                Log.i(TAG, "[TX_EXEC] Amount to send: " + convertAtomicToXmr(amountAtomic) + " XMR");
+                Log.i(TAG, "[TX_EXEC] Required (with fee buffer): " + convertAtomicToXmr(requiredAtomic) + " XMR");
                 
                 if (unlockedBalance < requiredAtomic) {
                     String error = "Insufficient unlocked balance: " + 
                                  convertAtomicToXmr(unlockedBalance) + " XMR (need " +
                                  convertAtomicToXmr(requiredAtomic) + " XMR)";
-                    Log.e(TAG, error);
+                    Log.e(TAG, "[TX_EXEC] ✗ BALANCE CHECK FAILED");
+                    Log.e(TAG, "[TX_EXEC] " + error);
                     mainHandler.post(() -> callback.onError(error));
                     return;
                 }
+                Log.i(TAG, "[TX_EXEC] ✓ Balance check passed");
                 
                 // Step 3: Create transaction
-                Log.d(TAG, "[3/4] Creating transaction...");
-                PendingTransaction pendingTx = wallet.createTransaction(
-                    destinationAddress, "", amountAtomic, 0,
-                    PendingTransaction.Priority.Priority_Default.ordinal()
-                );
+                Log.i(TAG, "[TX_EXEC] [3/4] CREATING TRANSACTION");
+                Log.i(TAG, "[TX_EXEC] Address: " + destinationAddress.substring(0, Math.min(20, destinationAddress.length())) + "...");
+                Log.i(TAG, "[TX_EXEC] Amount (atomic): " + amountAtomic);
+                Log.i(TAG, "[TX_EXEC] Amount (XMR): " + amountXmr);
+                
+                PendingTransaction pendingTx;
+                try {
+                    pendingTx = wallet.createTransaction(
+                        destinationAddress, "", amountAtomic, 0,
+                        PendingTransaction.Priority.Priority_Default.ordinal()
+                    );
+                    Log.i(TAG, "[TX_EXEC] ✓ Transaction created by wallet");
+                } catch (Exception e) {
+                    Log.e(TAG, "[TX_EXEC] ✗ Exception during transaction creation", e);
+                    mainHandler.post(() -> callback.onError("Transaction creation exception: " + e.getMessage()));
+                    return;
+                }
                 
                 if (pendingTx == null) {
                     String error = "Failed to create transaction: wallet returned null";
-                    Log.e(TAG, error);
+                    Log.e(TAG, "[TX_EXEC] ✗ " + error);
                     mainHandler.post(() -> callback.onError(error));
                     return;
                 }
+                Log.i(TAG, "[TX_EXEC] ✓ pendingTx is not null");
                 
-                if (pendingTx.getStatus() != PendingTransaction.Status.Status_Ok.ordinal()) {
+                int txStatus = pendingTx.getStatusNative(pendingTx.handle);
+                Log.i(TAG, "[TX_EXEC] Transaction status code: " + txStatus);
+                Log.i(TAG, "[TX_EXEC] Expected OK status: " + PendingTransaction.Status.Status_Ok.getValue());
+                if (txStatus != PendingTransaction.Status.Status_Ok.getValue()) {
                     String error = pendingTx.getErrorString();
-                    Log.e(TAG, "✗ Transaction creation failed: " + error);
+                    Log.e(TAG, "[TX_EXEC] ✗ Transaction creation failed");
+                    Log.e(TAG, "[TX_EXEC] Status code: " + txStatus);
+                    Log.e(TAG, "[TX_EXEC] Status name: " + PendingTransaction.Status.fromInteger(txStatus).name());
+                    Log.e(TAG, "[TX_EXEC] Error message: " + error);
                     mainHandler.post(() -> callback.onError("Transaction creation failed: " + error));
                     return;
                 }
+                Log.i(TAG, "[TX_EXEC] ✓ Transaction status is OK");
+                
+                long fee = 0;
+                try {
+                    fee = pendingTx.getFee();
+                    Log.i(TAG, "[TX_EXEC] ✓ Transaction fee retrieved: " + convertAtomicToXmr(fee) + " XMR (" + fee + " atomic)");
+                } catch (Exception e) {
+                    Log.w(TAG, "[TX_EXEC] Warning: Could not retrieve fee: " + e.getMessage());
+                    Log.i(TAG, "[TX_EXEC] Continuing with transaction...");
+                }
                 
                 // Step 4: Commit transaction
-                Log.d(TAG, "[4/4] Committing transaction...");
-                boolean committed = pendingTx.commit("", true);
-                if (!committed) {
-                    String error = pendingTx.getErrorString();
-                    Log.e(TAG, "✗ Transaction commit failed: " + error);
-                    mainHandler.post(() -> callback.onError("Transaction broadcast failed: " + error));
+                Log.i(TAG, "[TX_EXEC] [4/4] COMMITTING TRANSACTION");
+                Log.i(TAG, "[TX_EXEC] Calling pendingTx.commit()...");
+                
+                boolean committed;
+                try {
+                    committed = pendingTx.commit("", true);
+                    Log.i(TAG, "[TX_EXEC] ✓ commit() returned: " + committed);
+                } catch (Exception e) {
+                    Log.e(TAG, "[TX_EXEC] ✗ Exception during commit", e);
+                    mainHandler.post(() -> callback.onError("Transaction commit exception: " + e.getMessage()));
                     return;
                 }
                 
-                String txId = pendingTx.getFirstTxId();
-                long actualAmount = pendingTx.getAmount();
+                if (!committed) {
+                    String error = pendingTx.getErrorString();
+                    Log.e(TAG, "[TX_EXEC] ✗ Transaction commit failed");
+                    Log.e(TAG, "[TX_EXEC] Error: " + error);
+                    mainHandler.post(() -> callback.onError("Transaction broadcast failed: " + error));
+                    return;
+                }
+                Log.i(TAG, "[TX_EXEC] ✓ Transaction committed successfully");
                 
-                Log.i(TAG, "✓ Transaction broadcast: " + txId);
+                String txId = null;
+                long actualAmount = 0;
+                try {
+                    // Retrieve transaction ID from the list
+                    List<String> txIds = pendingTx.getTxId();
+                    if (txIds != null && !txIds.isEmpty()) {
+                        txId = txIds.get(0);
+                        Log.i(TAG, "[TX_EXEC] ✓ Transaction ID retrieved: " + txId);
+                    } else {
+                        Log.w(TAG, "[TX_EXEC] Warning: TxId list is empty or null");
+                        txId = "UNKNOWN";
+                    }
+                    
+                    actualAmount = pendingTx.getAmount();
+                    Log.i(TAG, "[TX_EXEC] ✓ Actual amount: " + convertAtomicToXmr(actualAmount) + " XMR");
+                } catch (Exception e) {
+                    Log.e(TAG, "[TX_EXEC] ✗ Failed to retrieve transaction ID or amount", e);
+                    txId = "ERROR_RETRIEVING_ID";
+                    actualAmount = amountAtomic;
+                }
                 
-                // Persist wallet state
+                Log.i(TAG, "[TX_EXEC] Persisting wallet...");
                 persistWallet();
+                Log.i(TAG, "[TX_EXEC] ✓ Wallet persisted");
                 
+                final String finalTxId = txId;
+                final long finalAmount = actualAmount;
                 mainHandler.post(() -> {
-                    callback.onSuccess(txId, actualAmount);
-                    // Trigger sync to update balance
-                    performSync();
+                    Log.i(TAG, "[TX_CALLBACK] Posting success callback to UI thread");
+                    Log.i(TAG, "[TX_CALLBACK] TxID: " + finalTxId);
+                    callback.onSuccess(finalTxId, finalAmount);
+                    Log.i(TAG, "[TX_CALLBACK] ✓ Callback posted");
                 });
                 
+                Log.i(TAG, "╔═══════════════════════════════════════════════════════════╗");
+                Log.i(TAG, "║ TRANSACTION EXECUTION SUCCESSFUL                          ║");
+                Log.i(TAG, "╚═══════════════════════════════════════════════════════════╝");
+                
             } catch (Exception e) {
-                Log.e(TAG, "✗ Transaction exception", e);
+                Log.e(TAG, "[TX_EXEC] ✗ Unexpected transaction exception", e);
+                Log.e(TAG, "[TX_EXEC] Exception type: " + e.getClass().getSimpleName());
+                Log.e(TAG, "[TX_EXEC] Message: " + e.getMessage());
+                e.printStackTrace();
                 mainHandler.post(() -> callback.onError("Transaction failed: " + e.getMessage()));
             } finally {
-                // CRITICAL: Always release the lock
-                currentState.compareAndSet(WalletState.SYNCING, WalletState.IDLE);
+                Log.i(TAG, "[TX_FINALLY] Entering finally block...");
+                
+                // CRITICAL: Release the lock
+                Log.i(TAG, "[TX_FINALLY] Attempting state transition: SYNCING -> IDLE");
+                boolean stateReleased = currentState.compareAndSet(WalletState.SYNCING, WalletState.IDLE);
+                Log.i(TAG, "[TX_FINALLY] State release result: " + stateReleased);
+                Log.i(TAG, "[TX_FINALLY] Current state is now: " + currentState.get());
+                
+                // Resume normal sync operations after brief delay
+                Log.i(TAG, "[TX_FINALLY] Scheduling resume of sync operations with 2000ms delay");
+                mainHandler.postDelayed(() -> {
+                    Log.i(TAG, "[TX_RESUME_DELAYED] Executing delayed resume...");
+                    synchronized (transactionLock) {
+                        Log.i(TAG, "[TX_RESUME_DELAYED] ✓ transactionLock acquired in resume");
+                        resumeNormalSyncOperations();
+                    }
+                }, 2000); // 2 second delay before resuming
+                
+                Log.i(TAG, "[TX_FINALLY] ✓ Finally block complete");
+            }
+        });
+    }
+
+    /**
+     * Override forceRescan to respect transaction context
+     */
+    public void forceRescan(final RescanCallback callback) {
+        long timestamp = System.currentTimeMillis();
+        Log.i(TAG, "╔════════════════════════════════════════════════════════════════╗");
+        Log.i(TAG, "║ FORCE RESCAN REQUEST RECEIVED                                 ║");
+        Log.i(TAG, "╚════════════════════════════════════════════════════════════════╝");
+        Log.i(TAG, "[RESCAN_REQ] Timestamp: " + timestamp);
+        Log.i(TAG, "[RESCAN_REQ] transactionInProgress: " + transactionInProgress);
+        Log.i(TAG, "[RESCAN_REQ] Callback provided: " + (callback != null));
+        
+        // Prevent rescan during transaction
+        if (transactionInProgress) {
+            Log.w(TAG, "[RESCAN_REQ] âœ— BLOCKED: Cannot rescan during transaction");
+            Log.w(TAG, "[RESCAN_REQ] transactionInProgress flag is TRUE");
+            if (callback != null) {
+                mainHandler.post(() -> {
+                    Log.i(TAG, "[RESCAN_REQ] Posting error callback: 'Cannot rescan while transaction in progress'");
+                    callback.onError("Cannot rescan while transaction is in progress");
+                });
+            }
+            return;
+        }
+        Log.i(TAG, "[RESCAN_REQ]  Transaction flag check passed");
+        
+        Log.d(TAG, "[RESCAN_REQ] Setting rescan callback and delegating to triggerRescan()");
+        this.rescanCallback = callback;
+
+        executorService.execute(() -> {
+            Log.i(TAG, "[RESCAN_EXEC] Rescan executor thread started: " + Thread.currentThread().getName());
+            synchronized (walletLock) {
+                Log.i(TAG, "[RESCAN_EXEC]  walletLock acquired");
+                try {
+                    Log.i(TAG, "[RESCAN_EXEC] Calling triggerRescan()...");
+                    triggerRescan();
+                    Log.i(TAG, "[RESCAN_EXEC]  triggerRescan() returned");
+                } catch (Exception e) {
+                    Log.e(TAG, "[RESCAN_EXEC] âœ— triggerRescan() threw exception", e);
+                    if (callback != null) {
+                        final String error = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                        mainHandler.post(() -> {
+                            Log.i(TAG, "[RESCAN_EXEC] Posting error callback for exception");
+                            callback.onError("Rescan failed: " + error);
+                        });
+                    }
+                }
             }
         });
     }

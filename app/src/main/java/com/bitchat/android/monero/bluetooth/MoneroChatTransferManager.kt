@@ -137,8 +137,18 @@ class MoneroChatTransferManager(
             onError("Invalid amount")
             return
         }
+        
+        val cachedBalance = amount.toLongOrNull() ?: run {
+            onError("Invalid amount")
+            return
+        }
+        
+        val cachedUnlockedBalance = amount.toLongOrNull() ?: run {
+            onError("Invalid amount")
+            return
+        }                
 
-        walletSuite.sendTransaction(receiverMoneroAddress, amountXmr, object : WalletSuite.TransactionCallback {
+        walletSuite.sendTransaction(receiverMoneroAddress, amountXmr, cachedBalance, cachedUnlockedBalance, object : WalletSuite.TransactionCallback {
             override fun onSuccess(txId: String, amount: Long) {
                 val msg = messageHandler.createTransactionIdMessage(
                     txId = txId,
