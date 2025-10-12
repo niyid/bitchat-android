@@ -73,7 +73,7 @@ public class PendingTransaction {
 
     /* ===== INSTANCE VARIABLES ===== */
 
-    private long handle;           // C++ pointer to PendingTransaction
+    public long handle;           // C++ pointer to PendingTransaction
     private Status status = Status.Status_Ok;
     private String errorString = "";
 

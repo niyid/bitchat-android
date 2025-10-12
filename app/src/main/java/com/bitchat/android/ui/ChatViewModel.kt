@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Properties
+import java.util.concurrent.atomic.AtomicLong 
 
 class ChatViewModel(
     application: Application,
@@ -140,6 +141,22 @@ class ChatViewModel(
         private set
     var isWalletReady by mutableStateOf(false)
         private set
+        
+    private val _balanceAtomic = AtomicLong(0L)
+    private val _unlockedBalanceAtomic = AtomicLong(0L)
+
+    // Add setter methods
+    fun updateCachedBalance(balance: Long) {
+        _balanceAtomic.set(balance)
+    }
+
+    fun updateCachedUnlockedBalance(unlockedBalance: Long) {
+        _unlockedBalanceAtomic.set(unlockedBalance)
+    }
+
+    // Getter methods (already added above)
+    fun getCachedBalance(): Long = _balanceAtomic.get()
+    fun getCachedUnlockedBalance(): Long = _unlockedBalanceAtomic.get()        
     
     private val transactionMessages = mutableMapOf<String, BitchatMessage>()
 
