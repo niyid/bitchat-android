@@ -726,7 +726,7 @@ private fun ChatInputSection(
                         enabled = messageText.text.isNotBlank()
                     ) {
                         Icon(
-                            imageVector = if (isMoneroModeActive) Icons.Default.CurrencyExchange else Icons.AutoMirrored.Filled.Send,
+                            imageVector = if (isMoneroModeActive) Icons.Default.AttachMoney else Icons.AutoMirrored.Filled.Send,
                             contentDescription = if (isMoneroModeActive) "Send Monero" else "Send message",
                             tint = if (messageText.text.isNotBlank()) Color.White else colorScheme.onSurface.copy(alpha = 0.4f)
                         )
