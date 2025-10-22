@@ -99,7 +99,12 @@ fun ChatScreen(viewModel: ChatViewModel) {
     val moneroChatTransferManager = viewModel.moneroChatTransferManager
     val myWalletAddress by viewModel.myWalletAddress.observeAsState()
     val showDaemonConfigDialog = viewModel.showDaemonConfigDialog
-    val daemonConfigLoading = viewModel.daemonConfigLoading    
+    val daemonConfigLoading = viewModel.daemonConfigLoading
+    
+    var showMoneroConfirmDialog by remember { mutableStateOf(false) }
+    var pendingMoneroAmount by remember { mutableStateOf(0.0) }
+    var pendingMoneropeer by remember { mutableStateOf("") }
+    var pendingMoneroAddress by remember { mutableStateOf("") }        
     
     var messageText by remember { mutableStateOf(TextFieldValue("")) }
     var showPasswordPrompt by remember { mutableStateOf(false) }
@@ -393,17 +398,18 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     Log.d(TAG, "Sending message/Monero now...")
                     if (messageText.text.trim().isNotEmpty()) {
                         if (isMoneroModeActive) {
-                            // Handle Monero send - SIMPLIFIED
+                            // Store transaction details and show confirmation
                             val receiverMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
-                            Log.d(TAG, "Sending Monero to $selectedPrivatePeer with address: $receiverMoneroAddress")
+                            val amount = messageText.text.toDoubleOrNull() ?: 0.0
                             
-                            sendMoneroTransaction(
-                                amount = messageText.text.toDoubleOrNull() ?: 0.0,
-                                peer = selectedPrivatePeer!!,
-                                address = receiverMoneroAddress!!
-                            )
-                            
-                            messageText = TextFieldValue("")
+                            if (amount > 0 && receiverMoneroAddress != null) {
+                                pendingMoneroAmount = amount
+                                pendingMoneropeer = selectedPrivatePeer!!
+                                pendingMoneroAddress = receiverMoneroAddress
+                                showMoneroConfirmDialog = true
+                            } else {
+                                viewModel.addSystemMessage("❌ Invalid amount or missing address")
+                            }
                         } else {
                             // Handle regular message send
                             viewModel.sendMessage(messageText.text.trim())
@@ -545,6 +551,37 @@ fun ChatScreen(viewModel: ChatViewModel) {
             )
         }
     }
+
+    // Monero confirmation dialog
+    if (showMoneroConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showMoneroConfirmDialog = false },
+            title = { Text("Confirm Transaction") },
+            text = { 
+                Text("Do you really want to send $pendingMoneroAmount XMR to $pendingMoneropeer?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showMoneroConfirmDialog = false
+                        sendMoneroTransaction(
+                            amount = pendingMoneroAmount,
+                            peer = pendingMoneropeer,
+                            address = pendingMoneroAddress
+                        )
+                        messageText = TextFieldValue("")
+                    }
+                ) {
+                    Text("Send")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMoneroConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }    
 
     // Dialogs and Sheets
     ChatDialogs(

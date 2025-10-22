@@ -1197,17 +1197,16 @@ public class WalletSuite {
                 String walletName = walletManager.getWalletName();
                 Log.d(TAG, "Wallet name: " + walletName);
 
-                // Step 1: Check for wallet backup on SD card
-                File sdcardDir = new File(Environment.getExternalStorageDirectory(),
-                        "Android/data/com.bitchat.droid/files");
-                Log.d(TAG, "Checking SD card directory: " + sdcardDir.getAbsolutePath());
+                // Step 1: Check for wallet backup in sandboxed external storage backups folder
+                File backupDir = new File(context.getExternalFilesDir(null), "backups");
+                Log.d(TAG, "Checking backup directory: " + backupDir.getAbsolutePath());
                 
-                File backupFile = new File(sdcardDir, walletName);
-                File backupKeysFile = new File(sdcardDir, walletName + ".keys");
-                File backupAddressFile = new File(sdcardDir, walletName + ".address.txt");
+                File backupFile = new File(backupDir, walletName);
+                File backupKeysFile = new File(backupDir, walletName + ".keys");
+                File backupAddressFile = new File(backupDir, walletName + ".address.txt");
 
-                // Step 2: Determine target directory
-                File dir = context.getDir("wallets", Context.MODE_PRIVATE);
+                // Step 2: Determine target directory - use sandboxed external storage
+                File dir = new File(context.getExternalFilesDir(null), "wallets");
                 Log.d(TAG, "Wallets directory: " + dir.getAbsolutePath());
                 if (!dir.exists() && !dir.mkdirs()) {
                     Log.e(TAG, "CRITICAL: Cannot create wallets directory");
@@ -1219,14 +1218,16 @@ public class WalletSuite {
                 String walletPath = new File(dir, walletName).getAbsolutePath();
                 currentWalletPath = walletPath;
 
-                // Step 3: Copy wallet from SD card if exists
+                // Step 3: Copy wallet from backup if exists
                 if (backupFile.exists()) {
-                    Log.i(TAG, "=== RESTORING WALLET FROM SD CARD ===");
+                    Log.i(TAG, "=== RESTORING WALLET FROM BACKUP ===");
                     try {
                         File destWalletFile = new File(walletPath);
                         Files.copy(backupFile.toPath(), destWalletFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                         Log.i(TAG, "✓ Main wallet file copied");
-                        File bakWalletFile = new File(sdcardDir, walletName + ".bak");
+                        
+                        // Move original backup file to .bak to prevent repeated restoration
+                        File bakWalletFile = new File(backupDir, walletName + ".bak");
                         Files.move(backupFile.toPath(), bakWalletFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                         Log.i(TAG, "✓ Original wallet file renamed to .bak");
                     } catch (Exception ex) {
@@ -1237,7 +1238,7 @@ public class WalletSuite {
                         try {
                             File destKeysFile = new File(walletPath + ".keys");
                             Files.copy(backupKeysFile.toPath(), destKeysFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            File bakKeysFile = new File(sdcardDir, walletName + ".keys.bak");
+                            File bakKeysFile = new File(backupDir, walletName + ".keys.bak");
                             Files.move(backupKeysFile.toPath(), bakKeysFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                             Log.i(TAG, "✓ Keys file copied and renamed to .bak");
                         } catch (Exception ex) {
@@ -1249,7 +1250,7 @@ public class WalletSuite {
                         try {
                             File destAddressFile = new File(walletPath + ".address.txt");
                             Files.copy(backupAddressFile.toPath(), destAddressFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                            File bakAddrFile = new File(sdcardDir, walletName + ".address.txt.bak");
+                            File bakAddrFile = new File(backupDir, walletName + ".address.txt.bak");
                             Files.move(backupAddressFile.toPath(), bakAddrFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
                             Log.i(TAG, "✓ Address file copied and renamed to .bak");
                         } catch (Exception ex) {
@@ -1259,7 +1260,7 @@ public class WalletSuite {
 
                     Log.i(TAG, "=== WALLET RESTORATION COMPLETE ===");
                 } else {
-                    Log.d(TAG, "No backup found on SD card");
+                    Log.d(TAG, "No backup found in sandboxed storage");
                 }
 
                 // Step 4: Open or create wallet
@@ -1344,6 +1345,7 @@ public class WalletSuite {
 
                 future.complete(true);
                 Log.i(TAG, "✓ WALLET INITIALIZATION COMPLETE");
+                Log.i(TAG, "Wallet location: " + walletPath);
 
             } catch (Exception e) {
                 Log.e(TAG, "✗ Exception during wallet init", e);
