@@ -1,2 +1,0 @@
-=== JNI CHECK ===
-All native methods have matching JNI exports ✅
