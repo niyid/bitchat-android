@@ -135,12 +135,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
         
         viewModel.addSystemMessage("⏳ Preparing transaction of $amount XMR...")
         
-        // Get cached balances from ViewModel
+        // Get cached balances from ViewModel with logging
         val cachedBalance = viewModel.getCachedBalance()
         val cachedUnlocked = viewModel.getCachedUnlockedBalance()
         
-        Log.d(TAG, "Using cached balance: ${WalletSuite.convertAtomicToXmr(cachedBalance)} XMR")
-        Log.d(TAG, "Using cached unlocked: ${WalletSuite.convertAtomicToXmr(cachedUnlocked)} XMR")
+        Log.d(TAG, "About to send transaction:")
+        Log.d(TAG, "  Cached balance: $cachedBalance (${WalletSuite.convertAtomicToXmr(cachedBalance)} XMR)")
+        Log.d(TAG, "  Cached unlocked: $cachedUnlocked (${WalletSuite.convertAtomicToXmr(cachedUnlocked)} XMR)")
         
         // Direct call to WalletSuite with cached balances
         walletSuite?.sendTransaction(
@@ -156,7 +157,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     Log.i(TAG, "Amount sent: $sentAmountXmr XMR")
                     
                     viewModel.addSystemMessage("✅ Sent $sentAmountXmr XMR successfully")
-                    viewModel.addSystemMessage("🔍 Transaction ID: ${txId.take(16)}...")
+                    viewModel.addSystemMessage("📝 Transaction ID: ${txId.take(16)}...")
                     
                     // Share transaction ID with peer via direct message
                     val txMessage = "[TX_ID:$txId]"
@@ -171,7 +172,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 }
             }
         )
-    }      
+    }
 
     // Initialize Monero components - SIMPLIFIED: Let WalletSuite handle initialization
     LaunchedEffect(Unit) {
@@ -192,30 +193,33 @@ fun ChatScreen(viewModel: ChatViewModel) {
                             viewModel.updateWalletStatusMessage("Address error: $error")
                         }
                     })
-                    // Get balance when wallet is ready
-                    viewModel.walletSuite?.getBalance(object : WalletSuite.BalanceCallback {
-                        override fun onSuccess(balance: Long, unlockedBalance: Long) {
-                            Log.d(TAG, "Balance loaded after init")
-                            viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
-                        }
-                        override fun onError(error: String) {
-                            viewModel.updateWalletStatusMessage("Balance error: $error")
-                        }
-                    })
                 } else {
                     viewModel.updateWalletStatusMessage("Wallet failed: $message")
-                    // No manual retry - WalletSuite handles its own retry logic
                 }
             }
+            
             override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
-                Log.d(TAG, "BALANCE: balance: $balance| unlockedBalance: $unlockedBalance")
+                Log.d(TAG, "=== BALANCE UPDATE CALLBACK ===")
+                Log.d(TAG, "Balance (atomic): $balance")
+                Log.d(TAG, "Unlocked (atomic): $unlockedBalance")
+                Log.d(TAG, "Balance (XMR): ${WalletSuite.convertAtomicToXmr(balance)}")
+                Log.d(TAG, "Unlocked (XMR): ${WalletSuite.convertAtomicToXmr(unlockedBalance)}")
                 
-                // Use setter methods instead of direct access
+                // CRITICAL: Update cached values FIRST
+                Log.d(TAG, "Calling viewModel.updateCachedBalance...")
                 viewModel.updateCachedBalance(balance)
+                
+                Log.d(TAG, "Calling viewModel.updateCachedUnlockedBalance...")
                 viewModel.updateCachedUnlockedBalance(unlockedBalance)
                 
-                viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+                // Then update UI display
+                val balanceXmr = WalletSuite.convertAtomicToXmr(unlockedBalance)
+                Log.d(TAG, "Updating UI balance to: $balanceXmr XMR")
+                viewModel.updateCurrentBalance(balanceXmr)
+                
+                Log.d(TAG, "=== BALANCE UPDATE COMPLETE ===")
             }
+            
             override fun onSyncProgress(
                 height: Long,
                 startHeight: Long,
