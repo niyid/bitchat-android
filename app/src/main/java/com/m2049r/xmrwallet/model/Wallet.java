@@ -115,6 +115,7 @@ public class Wallet {
 
     public native boolean refresh();
     public native void refreshAsync();
+    public native void rescanSpent();
     public native void startRefresh();
     public native void pauseRefresh();
     public native boolean isRefreshing();
@@ -147,9 +148,11 @@ public class Wallet {
 
     private native long createTransactionJ(String dst_addr, String payment_id, long amount, int mixin_count, int priority, int accountIndex);
     
-    public long createTransaction(String dst_addr, String payment_id, long amount, int mixin_count, int priority, int accountIndex) {
-    return createTransactionJ(dst_addr, payment_id, amount, mixin_count, priority, accountIndex);
-}    
+    public PendingTransaction createTransaction(String dst_addr, String payment_id, long amount, int mixin_count, int priority, int accountIndex) {
+        long txHandle = createTransactionJ(dst_addr, payment_id, amount, mixin_count, priority, accountIndex);
+        PendingTransaction pendingTransaction = new PendingTransaction(txHandle);
+        return pendingTransaction;
+    }    
 
     private native long createSweepTransaction(String dst_addr, String payment_id, int mixin_count, int priority, int accountIndex);
 
@@ -257,6 +260,10 @@ public class Wallet {
             history = new TransactionHistory(getHistoryJ(), accountIndex);
         }
         return history;
+    }
+    
+    public boolean isConnected() {
+        return ConnectionStatus.ConnectionStatus_Connected == ConnectionStatus.values()[getConnectionStatusJ()];
     }
 
     public void refreshHistory() {
