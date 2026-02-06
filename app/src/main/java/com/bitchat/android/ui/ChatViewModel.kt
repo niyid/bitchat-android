@@ -1730,4 +1730,21 @@ class ChatViewModel(
     fun peerIdentityForNostrPubkey(pubkeyHex: String): PeerIdentity =
         geohashViewModel.peerIdentityForNostrPubkey(pubkeyHex)
 
+    fun addSystemMessage(message: String) {
+        messageManager.addSystemMessage(message)
+    }
+
+    fun sendDirectMessage(peer: String, message: String) {
+        val recipientNickname = meshService.getPeerNicknames()[peer]
+        privateChatManager.sendPrivateMessage(
+            message,
+            peer,
+            recipientNickname,
+            state.getNicknameValue(),
+            meshService.myPeerID
+        ) { messageContent, peerID, recipientNicknameParam, messageId ->
+            val router = com.bitchat.android.services.MessageRouter.getInstance(getApplication(), meshService)
+            router.sendPrivate(messageContent, peerID, recipientNicknameParam, messageId)
+        }
+    }
 }
