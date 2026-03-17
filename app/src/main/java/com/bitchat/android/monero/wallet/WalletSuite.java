@@ -555,12 +555,8 @@ public class WalletSuite {
                 // Option 1: Call wallet.refreshAsync() to rebuild cache properly
                 // This is non-blocking and will trigger the 'refreshed' callback
                 wallet.refreshAsync();
-                
-                // Wait a moment for cache to update
-                Thread.sleep(2000);
-                
-                // Now get the real balance
-                updateBalanceFromWallet();
+                // Schedule balance update after async cache rebuild (non-blocking)
+                mainHandler.postDelayed(this::updateBalanceFromWallet, 2000);
             }
             
             // Get final sync status
@@ -932,7 +928,9 @@ public class WalletSuite {
                 return cachedDaemonHeight.get();
             }
 
-            String daemonUrl = "http://" + daemonAddress + ":" + daemonPort + "/get_height";
+            boolean useSsl = walletManager.isDaemonSsl();
+            String scheme = useSsl ? "https" : "http";
+            String daemonUrl = scheme + "://" + daemonAddress + ":" + daemonPort + "/get_height";
             URL url = new URL(daemonUrl);
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("GET");
@@ -1475,8 +1473,8 @@ public class WalletSuite {
             PendingTransaction pendingTx = null;
             try {
                 // Transition to transaction state
-                if (!currentState.compareAndSet(WalletState.IDLE, WalletState.SYNCING)) {
-                    mainHandler.post(() -> callback.onError("Wallet busy"));
+                if (!currentState.compareAndSet(WalletState.IDLE, WalletState.TRANSACTION)) {
+                    mainHandler.post(() -> callback.onError("Wallet busy: " + currentState.get()));
                     return;
                 }
                 
@@ -1689,12 +1687,11 @@ public class WalletSuite {
         executorService.execute(() -> {
             PendingTransaction pendingTx = null;
             try {
-                if (!currentState.compareAndSet(WalletState.OPENING, WalletState.TRANSACTION)) {
-                    
-                    mainHandler.post(() -> cb.onError("Wallet busy"));
+                if (!currentState.compareAndSet(WalletState.IDLE, WalletState.TRANSACTION)) {
+                    mainHandler.post(() -> cb.onError("Wallet busy: " + currentState.get()));
                     return;
                 }
-            
+
                 long atomic = Helper.getAmountFromString(amount);
                 Log.i(TAG, "Using mixin value of: " + 15);
                 
@@ -1773,9 +1770,8 @@ public class WalletSuite {
         executorService.execute(() -> {
             PendingTransaction pendingTx = null;
             try {
-                if (!currentState.compareAndSet(WalletState.OPENING, WalletState.TRANSACTION)) {
-                    
-                    mainHandler.post(() -> callback.onError("Wallet busy"));
+                if (!currentState.compareAndSet(WalletState.IDLE, WalletState.TRANSACTION)) {
+                    mainHandler.post(() -> callback.onError("Wallet busy: " + currentState.get()));
                     return;
                 }
                 
