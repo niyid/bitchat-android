@@ -277,6 +277,24 @@ fun saveDaemonConfig(context: Context, config: DaemonConfig): Boolean {
             properties.store(output, "Daemon configuration - Updated ${java.util.Date()}")
         }
 
+        // Save credentials in EncryptedSharedPreferences
+        if (config.username.isNotEmpty() || config.password.isNotEmpty()) {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            val encryptedPrefs = EncryptedSharedPreferences.create(
+                context,
+                "daemon_credentials",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            encryptedPrefs.edit()
+                .putString("daemon.username", config.username)
+                .putString("daemon.password", config.password)
+                .apply()
+        }
+
         Log.i("DaemonConfig", "Saved daemon config to: ${externalFile.absolutePath}")
         true
     } catch (e: Exception) {
@@ -302,6 +320,26 @@ fun loadDaemonConfig(context: Context): DaemonConfig {
             if (internalFile.exists()) {
                 internalFile.inputStream().use { properties.load(it) }
             }
+        }
+
+        // Load credentials from EncryptedSharedPreferences
+        var username = ""
+        var password = ""
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            val encryptedPrefs = EncryptedSharedPreferences.create(
+                context,
+                "daemon_credentials",
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            username = encryptedPrefs.getString("daemon.username", "") ?: ""
+            password = encryptedPrefs.getString("daemon.password", "") ?: ""
+        } catch (e: Exception) {
+            Log.w("DaemonConfig", "Could not load encrypted credentials, using empty", e)
         }
 
         DaemonConfig(
