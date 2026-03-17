@@ -1659,7 +1659,7 @@ public class WalletSuite {
                     return;
                 }
                 
-                Log.i(TAG, "Transaction imported and submitted: " + txId);
+                Log.i(TAG, "✓ Transaction imported and submitted: " + txId);
                 
                 // Store wallet state
                 wallet.store();
@@ -1671,7 +1671,7 @@ public class WalletSuite {
                 mainHandler.post(() -> callback.onSuccess(finalTxId));
                 
             } catch (Exception e) {
-                Log.e(TAG, "Import tx blob exception", e);
+                Log.e(TAG, "✗ Import tx blob exception", e);
                 final String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
                 mainHandler.post(() -> callback.onError("Import failed: " + errorMsg));
             } finally {
@@ -1732,7 +1732,7 @@ public class WalletSuite {
                 mainHandler.post(() -> cb.onSuccess(txId, b64));
                 
             } catch (Exception e) {
-                Log.e(TAG, "Create tx blob exception", e);
+                Log.e(TAG, "✗ Create tx blob exception", e);
                 mainHandler.post(() -> cb.onError(e.getMessage()));
             } finally {
                 if (pendingTx != null) {
@@ -1759,7 +1759,7 @@ public class WalletSuite {
             Log.d(TAG, "[BALANCE] Updated: balance=" + (bal / 1e12) + " unlocked=" + (unl / 1e12));
             
         } catch (Exception e) {
-            Log.e(TAG, "[BALANCE] Failed to update balances", e);
+            Log.e(TAG, "[BALANCE] ✗ Failed to update balances", e);
         }
     }    
 
@@ -1804,7 +1804,7 @@ public class WalletSuite {
                 tempBlobFile.delete();
                 
             } catch (Exception e) {
-                Log.e(TAG, "Submit tx blob exception", e);
+                Log.e(TAG, "✗ Submit tx blob exception", e);
                 final String errorMsg = e.getMessage() != null ? e.getMessage() : "Unknown error";
                 mainHandler.post(() -> callback.onError("Submit failed: " + errorMsg));
             } finally {

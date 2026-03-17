@@ -32,6 +32,20 @@ import com.bitchat.android.nostr.GeohashAliasRegistry
 import com.bitchat.android.util.dataFromHexString
 import com.bitchat.android.util.hexEncodedString
 import java.security.MessageDigest
+import android.content.Context
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import com.bitchat.android.monero.messaging.MoneroMessageHandler
+import com.bitchat.android.monero.wallet.WalletSuite
+import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
+import java.io.File
+import java.io.FileOutputStream
+import java.util.Properties
+import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Refactored ChatViewModel - Main coordinator for bitchat functionality
@@ -122,6 +136,150 @@ class ChatViewModel(
     )
     val verifiedFingerprints = verificationHandler.verifiedFingerprints
 
+    // ---- Monero state ----
+    var moneroChatTransferManager: MoneroChatTransferManager? by mutableStateOf(null)
+        private set
+
+    private val _peerMoneroAddresses = mutableStateOf(emptyMap<String, String>())
+    val peerMoneroAddresses: State<Map<String, String>> = _peerMoneroAddresses
+
+    private val _pendingTransactionSearches = MutableStateFlow<Set<String>>(emptySet())
+    val pendingTransactionSearches: StateFlow<Set<String>> = _pendingTransactionSearches.asStateFlow()
+
+    var walletSuite by mutableStateOf<WalletSuite?>(null)
+        private set
+
+    lateinit var moneroMessageHandler: MoneroMessageHandler
+        private set
+
+    var isMoneroModeActive by mutableStateOf(false)
+    var currentBalance by mutableStateOf("0.000000")
+        private set
+    var isSyncing by mutableStateOf(false)
+        private set
+    var syncProgress by mutableStateOf(0)
+        private set
+    var walletStatusMessage by mutableStateOf("Wallet initializing...")
+        private set
+    var isWalletReady by mutableStateOf(false)
+        private set
+
+    private val _balanceAtomic = AtomicLong(0L)
+    private val _unlockedBalanceAtomic = AtomicLong(0L)
+
+    fun updateCachedBalance(balance: Long) {
+        Log.d(TAG, "[CACHE] updateCachedBalance called with: $balance atomic (${WalletSuite.convertAtomicToXmr(balance)} XMR)")
+        _balanceAtomic.set(balance)
+        Log.d(TAG, "[CACHE] Atomic balance now: ${_balanceAtomic.get()}")
+    }
+
+    fun updateCachedUnlockedBalance(unlockedBalance: Long) {
+        Log.d(TAG, "[CACHE] updateCachedUnlockedBalance called with: $unlockedBalance atomic (${WalletSuite.convertAtomicToXmr(unlockedBalance)} XMR)")
+        _unlockedBalanceAtomic.set(unlockedBalance)
+        Log.d(TAG, "[CACHE] Atomic unlocked balance now: ${_unlockedBalanceAtomic.get()}")
+    }
+
+    fun getCachedBalance(): Long {
+        val value = _balanceAtomic.get()
+        Log.d(TAG, "[CACHE] getCachedBalance returning: $value atomic (${WalletSuite.convertAtomicToXmr(value)} XMR)")
+        return value
+    }
+
+    fun getCachedUnlockedBalance(): Long {
+        val value = _unlockedBalanceAtomic.get()
+        Log.d(TAG, "[CACHE] getCachedUnlockedBalance returning: $value atomic (${WalletSuite.convertAtomicToXmr(value)} XMR)")
+        return value
+    }
+
+    private val transactionMessages = mutableMapOf<String, BitchatMessage>()
+
+    private val _myWalletAddress = MutableStateFlow<String?>(null)
+    val myWalletAddress: StateFlow<String?> = _myWalletAddress.asStateFlow()
+
+    val moneroAddressSentTo = mutableSetOf<String>()
+
+    var showDaemonConfigDialog by mutableStateOf(false)
+        private set
+
+    var daemonConfigLoading by mutableStateOf(false)
+        private set
+
+    private val _isWalletBusy = MutableStateFlow(false)
+    val isWalletBusy: StateFlow<Boolean> = _isWalletBusy.asStateFlow()
+
+    fun updateWalletBusyState(isBusy: Boolean) {
+        _isWalletBusy.value = isBusy
+    }
+
+    fun showDaemonConfigDialog() {
+        showDaemonConfigDialog = true
+    }
+
+    fun hideDaemonConfigDialog() {
+        showDaemonConfigDialog = false
+    }
+
+    fun updateMyWalletAddress(address: String) {
+        _myWalletAddress.value = address
+    }
+
+    fun saveDaemonConfigAndReconnect(config: DaemonConfig) {
+        daemonConfigLoading = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val success = saveDaemonConfig(getApplication(), config)
+                if (success) {
+                    withContext(Dispatchers.Main) {
+                        walletSuite?.reloadConfiguration()
+                        showDaemonConfigDialog = false
+                        daemonConfigLoading = false
+                        updateWalletReadyState(false)
+                        updateWalletStatusMessage("Connecting with new daemon settings...")
+                        initializeWalletSuite(getApplication(), object : WalletSuite.WalletStatusListener {
+                            override fun onWalletInitialized(success: Boolean, message: String) {
+                                updateWalletReadyState(success)
+                                if (success) {
+                                    updateWalletStatusMessage("Connected to new daemon successfully")
+                                    addSystemMessage("✅ Daemon configuration updated and connected")
+                                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                                        override fun onSuccess(address: String) { updateMyWalletAddress(address) }
+                                        override fun onError(error: String) { Log.e(TAG, "Failed to get address after daemon change: $error") }
+                                    })
+                                } else {
+                                    updateWalletStatusMessage("Failed to connect: $message")
+                                    addSystemMessage("❌ Failed to connect to daemon: $message")
+                                }
+                            }
+                            override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
+                                updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+                            }
+                            override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
+                                val syncing = percentDone < 100.0
+                                val progress = percentDone.toInt()
+                                updateSyncState(syncing, progress)
+                                if (syncing) updateWalletStatusMessage("Syncing with new daemon: $progress% ($height/$targetHeight)")
+                                else updateWalletStatusMessage("Synchronized with new daemon")
+                            }
+                        })
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        daemonConfigLoading = false
+                        addSystemMessage("❌ Failed to save daemon configuration")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    daemonConfigLoading = false
+                    addSystemMessage("❌ Error saving daemon config: ${e.message}")
+                    Log.e(TAG, "Error saving daemon config", e)
+                }
+            }
+        }
+    }
+    // ---- End Monero state ----
+
+
     // Media file sending manager
     private val mediaSendingManager = MediaSendingManager(state, messageManager, channelManager) { mesh }
     
@@ -205,6 +363,7 @@ class ChatViewModel(
     init {
         // Note: Mesh service delegate is now set by MainActivity
         loadAndInitialize()
+        moneroMessageHandler = createDefaultMoneroHandler()
         // Hydrate UI state from process-wide AppStateStore to survive Activity recreation
         viewModelScope.launch {
             try { com.bitchat.android.services.AppStateStore.peers.collect { peers ->
@@ -895,7 +1054,21 @@ class ChatViewModel(
     // MARK: - BluetoothMeshDelegate Implementation (delegated)
     
     override fun didReceiveMessage(message: BitchatMessage) {
-        meshDelegateHandler.didReceiveMessage(message)
+        Log.d(TAG, "=== RECEIVED MESSAGE ===")
+        Log.d(TAG, "Sender: ${message.sender}")
+        Log.d(TAG, "SenderPeerID: ${message.senderPeerID}")
+        Log.d(TAG, "Content preview: ${message.content.take(50)}")
+
+        if (message.content.startsWith("[MONERO_ADDRESS]")) {
+            val address = message.content.removePrefix("[MONERO_ADDRESS]")
+            val senderIdentifier = message.senderPeerID ?: message.sender
+            Log.i(TAG, "MONERO ADDRESS DETECTED! Address: $address From: $senderIdentifier")
+            updatePeerMoneroAddress(senderIdentifier, address)
+            addSystemMessage("${message.sender} shared Monero address")
+        } else {
+            meshDelegateHandler.didReceiveMessage(message)
+        }
+        Log.d(TAG, "=======================")
     }
     
     override fun didUpdatePeerList(peers: List<String>) {
@@ -1206,4 +1379,210 @@ class ChatViewModel(
             router.sendPrivate(messageContent, peerID, recipientNicknameParam, messageId)
         }
     }
+
+    // ---- Monero methods ----
+
+    private fun createDefaultMoneroHandler(): MoneroMessageHandler {
+        return MoneroMessageHandler(
+            onPaymentReceived = { payment ->
+                addSystemMessage("💰 Payment received: ${payment.amount} XMR from ${payment.fromUser}")
+            },
+            onAddressShared = { address, fromUser ->
+                addSystemMessage("📍 $fromUser shared Monero address: $address")
+                updatePeerMoneroAddress(fromUser, address)
+            },
+            onPaymentRequested = { request ->
+                addSystemMessage("💳 ${request.fromUser} requested ${request.amount} XMR - ${request.reason}")
+            },
+            onPaymentStatusUpdated = { txId, status ->
+                updateTransactionStatus(txId, status)
+            },
+            onTransactionIdReceived = { txIdMsg ->
+                addSystemMessage("🔑 TxID received: ${txIdMsg.txId} for ${txIdMsg.amount} XMR")
+                trackTransactionMessage(txIdMsg.txId, BitchatMessage(
+                    sender = txIdMsg.fromUser,
+                    content = "Transaction ${txIdMsg.txId} received",
+                    timestamp = java.util.Date(txIdMsg.timestamp),
+                    isRelay = false
+                ))
+            },
+            onTransactionSearchRequested = { req ->
+                addSystemMessage("🔍 ${req.fromUser} is searching for Tx ${req.txId}")
+                addPendingTransaction(req.txId)
+            }
+        )
+    }
+
+    fun shareMoneroAddressWithPeer(peer: String, address: String) {
+        Log.d(TAG, "=== SHARING MONERO ADDRESS === Target: $peer Address: $address")
+        moneroAddressSentTo.add(peer)
+        val messageContent = "[MONERO_ADDRESS]$address"
+        try {
+            sendDirectMessage(peer, messageContent)
+            Log.i(TAG, "Successfully sent Monero address to $peer")
+            addSystemMessage("INFO Shared Monero address with ${peerNicknames.value[peer] ?: peer}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send Monero address: ${e.message}", e)
+            moneroAddressSentTo.remove(peer)
+            addSystemMessage("Failed to share address with ${peerNicknames.value[peer] ?: peer}")
+        }
+    }
+
+    fun initializeWalletSuite(context: Context, listener: WalletSuite.WalletStatusListener) {
+        walletSuite = WalletSuite.getInstance(context).apply {
+            setWalletStatusListener(listener)
+            setTransactionListener(object : WalletSuite.TransactionListener {
+                override fun onTransactionCreated(txId: String, amount: Long) {
+                    addSystemMessage("💰 Transaction created: ${WalletSuite.convertAtomicToXmr(amount)} XMR (tx: $txId)")
+                }
+                override fun onTransactionConfirmed(txId: String) {
+                    updateTransactionStatus(txId, "confirmed")
+                    addSystemMessage("✅ Transaction confirmed: $txId")
+                }
+                override fun onTransactionFailed(txId: String, error: String) {
+                    updateTransactionStatus(txId, "failed")
+                    addSystemMessage("❌ Transaction failed: $txId - $error")
+                }
+                override fun onOutputReceived(amount: Long, txHash: String, isConfirmed: Boolean) {
+                    val amountXmr = WalletSuite.convertAtomicToXmr(amount)
+                    val status = if (isConfirmed) "confirmed" else "pending"
+                    addSystemMessage("💰 Output received: $amountXmr XMR ($status) - tx: $txHash")
+                }
+            })
+            initializeWallet()
+        }
+        moneroChatTransferManager = MoneroChatTransferManager(
+            context = context,
+            viewModel = this@ChatViewModel,
+            walletSuite = walletSuite!!,
+            messageHandler = moneroMessageHandler,
+            sendMessageCallback = { content, peerID -> sendDirectMessage(peerID, content) }
+        )
+    }
+
+    fun updateWalletReadyState(ready: Boolean) { isWalletReady = ready }
+    fun updateCurrentBalance(balance: String) { currentBalance = balance }
+    fun updateSyncState(syncing: Boolean, progress: Int) { isSyncing = syncing; syncProgress = progress }
+    fun updateWalletStatusMessage(message: String) { walletStatusMessage = message }
+
+    fun addPeerMoneroAddress(peer: String, address: String) {
+        _peerMoneroAddresses.value = _peerMoneroAddresses.value + (peer to address)
+    }
+
+    fun String.isHex(): Boolean = this.matches(Regex("^[0-9a-fA-F]+$"))
+
+    fun updatePeerMoneroAddress(peerID: String, address: String) {
+        Log.d(TAG, "=== UPDATE PEER MONERO ADDRESS === peerID: $peerID address: $address")
+        val updatedMap = _peerMoneroAddresses.value.toMutableMap()
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        if (selectedPeer != null) {
+            updatedMap[selectedPeer] = address
+            if (peerID.isHex()) updatedMap[peerID] = address
+            val nickname = peerNicknames.value[selectedPeer]
+            if (nickname != null && nickname.isNotEmpty()) updatedMap[nickname] = address
+        } else {
+            updatedMap[peerID] = address
+        }
+        _peerMoneroAddresses.value = updatedMap
+        Log.d(TAG, "Updated peerMoneroAddresses size: ${_peerMoneroAddresses.value.size}")
+    }
+
+    fun trackTransactionMessage(txId: String, message: BitchatMessage) {
+        transactionMessages[txId] = message
+    }
+
+    fun addMoneroTransactionMessage(txId: String, amount: String, recipientAddress: String) {
+        val content = "Sending $amount XMR... (⏳ pending)"
+        val transactionMessage = BitchatMessage(
+            id = "tx_$txId",
+            sender = "System",
+            content = content,
+            timestamp = java.util.Date(),
+            isRelay = false,
+            senderPeerID = "system"
+        )
+        transactionMessages[txId] = transactionMessage
+        val selectedPeer = state.getSelectedPrivateChatPeerValue()
+        val currentChannelValue = state.getCurrentChannelValue()
+        messageManager.addMessage(transactionMessage)
+    }
+
+    fun addPendingTransaction(txId: String) {
+        val current = _pendingTransactionSearches.value.orEmpty()
+        _pendingTransactionSearches.value = current + txId
+    }
+
+    fun removePendingTransaction(txId: String) {
+        val current = _pendingTransactionSearches.value.orEmpty()
+        _pendingTransactionSearches.value = current - txId
+    }
+
+    fun setTransactionFlowMode(mode: MoneroChatTransferManager.TransactionFlowMode) {
+        moneroChatTransferManager?.setTransactionFlowMode(mode)
+    }
+
+    fun searchForMissingTransaction(txId: String) {
+        addSystemMessage("🔍 Searching for transaction: $txId")
+        moneroChatTransferManager?.searchForMissingTransaction(txId) { found ->
+            if (found) removePendingTransaction(txId)
+        }
+    }
+
+    fun retryPendingTransactionSearches() {
+        val pending = _pendingTransactionSearches.value?.toList() ?: emptyList()
+        if (pending.isEmpty()) { addSystemMessage("ℹ️ No pending transactions to search for"); return }
+        addSystemMessage("🔄 Retrying ${pending.size} pending transaction(s)...")
+        pending.forEach { searchForMissingTransaction(it) }
+    }
+
+    fun clearPendingTransaction(txId: String) {
+        removePendingTransaction(txId)
+        addSystemMessage("🗑️ Cleared pending transaction: $txId")
+    }
+
+    fun processMessage(message: BitchatMessage) {
+        val content = message.content
+        if (content.startsWith("[MONERO_TXID]")) {
+            val txMessage = MoneroMessageHandler.TransactionIdMessage.createDefault(
+                txId = content,
+                fromUser = message.sender
+            )
+            moneroChatTransferManager?.handleIncomingTransactionId(
+                txMessage,
+                onSuccess = { Log.d(TAG, "Transaction processed successfully") },
+                onError = { error -> Log.e(TAG, "Error processing transaction: $error") }
+            )
+            return
+        }
+        if (content.startsWith("[MONERO_TX_FOUND]")) {
+            val parts = content.substringAfter("[MONERO_TX_FOUND]").split("|")
+            if (parts.size >= 2) {
+                val txId = parts[0]
+                val confirmations = parts[1]
+                addSystemMessage("✅ ${message.sender} confirmed receipt: $confirmations confirmations")
+                removePendingTransaction(txId)
+            }
+            return
+        }
+        meshDelegateHandler.didReceiveMessage(message)
+    }
+
+    fun updateTransactionStatus(txId: String, status: String) {
+        Log.d(TAG, "Updating transaction $txId status to: $status")
+        val existingMessage = transactionMessages[txId]
+        if (existingMessage != null) {
+            val statusText = when (status.lowercase()) {
+                "confirmed" -> "✅ Transaction $txId confirmed"
+                "failed" -> "❌ Transaction $txId failed"
+                "pending" -> "⏳ Transaction $txId is pending"
+                else -> "ℹ️ Transaction $txId status: $status"
+            }
+            addSystemMessage(statusText)
+        } else {
+            addSystemMessage("ℹ️ Transaction $txId: $status")
+        }
+    }
+
+    // ---- End Monero methods ----
+
 }
