@@ -220,8 +220,7 @@ class BitchatMoneroTransfer(private val context: Context) {
                 appendLine("$key=$value")
             }
 
-            appendLine("\n# Blob Data")
-            appendLine(transaction.blob)
+            // blob already included in header above
         }
 
         txFile.writeText(txContent)
@@ -565,15 +564,13 @@ class BitchatMoneroTransfer(private val context: Context) {
     }
 
     private fun deserializeTransactionPacket(data: ByteArray): TransactionPacket {
-        val json = String(data, Charsets.UTF_8)
-        // Simple JSON parsing - in production use proper JSON library
-        // This is a simplified implementation
+        val json = org.json.JSONObject(String(data, Charsets.UTF_8))
         return TransactionPacket(
-            id = extractJsonValue(json, "id"),
-            fragmentIndex = extractJsonValue(json, "fragmentIndex").toInt(),
-            totalFragments = extractJsonValue(json, "totalFragments").toInt(),
-            isComplete = extractJsonValue(json, "isComplete").toBoolean(),
-            data = decodeBase64(extractJsonValue(json, "data"))
+            id = json.getString("id"),
+            fragmentIndex = json.getInt("fragmentIndex"),
+            totalFragments = json.getInt("totalFragments"),
+            isComplete = json.getBoolean("isComplete"),
+            data = decodeBase64(json.getString("data"))
         )
     }
 
@@ -608,10 +605,6 @@ class BitchatMoneroTransfer(private val context: Context) {
         return android.util.Base64.decode(data, android.util.Base64.NO_WRAP)
     }
 
-    private fun extractJsonValue(json: String, key: String): String {
-        val pattern = "\"$key\"\\s*:\\s*\"?([^\"\\n,}]+)\"?".toRegex()
-        return pattern.find(json)?.groupValues?.get(1)?.trim('"') ?: ""
-    }
 
     /**
      * Cleanup resources
