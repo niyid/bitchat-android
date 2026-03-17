@@ -58,9 +58,8 @@ public class WalletSuite {
         IDLE,           // Not syncing, ready for operations
         SYNCING,        // Normal sync in progress
         RESCANNING,     // Full rescan in progress - BLOCKS ALL OTHER OPERATIONS
-        CLOSING,         // Shutdown in progress
-        TRANSACTION,
-        OPENING
+        CLOSING,        // Shutdown in progress
+        TRANSACTION     // Transaction in progress
     }
     
     private final AtomicReference<WalletState> currentState = new AtomicReference<>(WalletState.IDLE);
@@ -1783,19 +1782,33 @@ public class WalletSuite {
                 // Note: This approach may not work directly since we need the proper method to create from blob
                 // For now, we'll use an alternative approach
                 
-                Log.w(TAG, " Direct blob submission not fully supported, using alternative approach");
-                
-                // Alternative: Create a dummy transaction and return the provided blob
-                String txId = "blob_tx_" + System.currentTimeMillis();
-                String base64Blob = android.util.Base64.encodeToString(blobBytes, android.util.Base64.NO_WRAP);
-                
+                // Convert bytes to hex for wallet.submitTransaction
+                StringBuilder hexBuilder = new StringBuilder(blobBytes.length * 2);
+                for (byte b : blobBytes) {
+                    hexBuilder.append(String.format("%02x", b & 0xff));
+                }
+                String hexBlob = hexBuilder.toString();
+
+                Log.d(TAG, "Submitting transaction blob (" + blobBytes.length + " bytes)...");
+                String txId = wallet.submitTransaction(hexBlob);
+
+                if (txId == null || txId.isEmpty()) {
+                    String error = wallet.getErrorString();
+                    mainHandler.post(() -> callback.onError("Submit failed: " + (error != null ? error : "Unknown error")));
+                    tempBlobFile.delete();
+                    return;
+                }
+
+                Log.i(TAG, "✓ Transaction submitted: " + txId);
+
                 // Store wallet state
                 wallet.store();
-                
+                updateBalancesFromWallet();
+
                 final String finalTxId = txId;
-                final String finalBlob = base64Blob;
-                mainHandler.post(() -> callback.onSuccess(finalTxId, finalBlob));
-                
+                final String finalBase64 = android.util.Base64.encodeToString(blobBytes, android.util.Base64.NO_WRAP);
+                mainHandler.post(() -> callback.onSuccess(finalTxId, finalBase64));
+
                 // Clean up temp file
                 tempBlobFile.delete();
                 

@@ -168,28 +168,16 @@ class ChatViewModel(
     private val _unlockedBalanceAtomic = AtomicLong(0L)
 
     fun updateCachedBalance(balance: Long) {
-        Log.d(TAG, "[CACHE] updateCachedBalance called with: $balance atomic (${WalletSuite.convertAtomicToXmr(balance)} XMR)")
         _balanceAtomic.set(balance)
-        Log.d(TAG, "[CACHE] Atomic balance now: ${_balanceAtomic.get()}")
     }
 
     fun updateCachedUnlockedBalance(unlockedBalance: Long) {
-        Log.d(TAG, "[CACHE] updateCachedUnlockedBalance called with: $unlockedBalance atomic (${WalletSuite.convertAtomicToXmr(unlockedBalance)} XMR)")
         _unlockedBalanceAtomic.set(unlockedBalance)
-        Log.d(TAG, "[CACHE] Atomic unlocked balance now: ${_unlockedBalanceAtomic.get()}")
     }
 
-    fun getCachedBalance(): Long {
-        val value = _balanceAtomic.get()
-        Log.d(TAG, "[CACHE] getCachedBalance returning: $value atomic (${WalletSuite.convertAtomicToXmr(value)} XMR)")
-        return value
-    }
+    fun getCachedBalance(): Long = _balanceAtomic.get()
 
-    fun getCachedUnlockedBalance(): Long {
-        val value = _unlockedBalanceAtomic.get()
-        Log.d(TAG, "[CACHE] getCachedUnlockedBalance returning: $value atomic (${WalletSuite.convertAtomicToXmr(value)} XMR)")
-        return value
-    }
+    fun getCachedUnlockedBalance(): Long = _unlockedBalanceAtomic.get()
 
     private val transactionMessages = mutableMapOf<String, BitchatMessage>()
 
