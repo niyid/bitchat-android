@@ -130,20 +130,20 @@ class MoneroMessageHandler(
 
     // Data classes
     data class MoneroPaymentMessage(
-        var amount: String,
-        var fromUser: String,
-        var signedTxBlob: String? = null,
-        var txId: String? = null,
-        var toAddress: String? = null,
-        var timestamp: Long,
-        var status: String = STATUS_PENDING
+        val amount: String,
+        val fromUser: String,
+        val signedTxBlob: String? = null,
+        val txId: String? = null,
+        val toAddress: String? = null,
+        val timestamp: Long,
+        val status: String = STATUS_PENDING
     )
 
     data class MoneroPaymentRequest(
-        var amount: String,
-        var fromUser: String,
-        var reason: String,
-        var timestamp: Long
+        val amount: String,
+        val fromUser: String,
+        val reason: String,
+        val timestamp: Long
     )
 
     data class TransactionIdMessage(

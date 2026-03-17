@@ -20,12 +20,12 @@ public class MoneroTransactionManager {
     private int defaultNodeIndex = 0;
     
     public static class NodeConnection {
-        public String host;
-        public int port;
-        public String username;
-        public String password;
-        public String rpcUrl;
-        
+        private final String host;
+        private final int port;
+        private final String username;
+        private final String password;
+        private final String rpcUrl;
+
         public NodeConnection(String host, int port, String username, String password) {
             this.host = host;
             this.port = port;
@@ -33,6 +33,12 @@ public class MoneroTransactionManager {
             this.password = password;
             this.rpcUrl = "http://" + host + ":" + port + "/json_rpc";
         }
+
+        public String getHost() { return host; }
+        public int getPort() { return port; }
+        public String getUsername() { return username; }
+        public String getPassword() { return password; }
+        public String getRpcUrl() { return rpcUrl; }
     }
     
     // Constructor with single node
@@ -366,7 +372,7 @@ public class MoneroTransactionManager {
         request.put("method", method);
         request.put("params", params);
         
-        URL url = new URL(node.rpcUrl);
+        URL url = new URL(node.getRpcUrl());
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
@@ -375,8 +381,8 @@ public class MoneroTransactionManager {
         conn.setReadTimeout(30000); // 30 second timeout
         
         // Add authentication if provided
-        if (node.username != null && node.password != null) {
-            String auth = node.username + ":" + node.password;
+        if (node.getUsername() != null && node.getPassword() != null) {
+            String auth = node.getUsername() + ":" + node.getPassword();
             String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes());
             conn.setRequestProperty("Authorization", "Basic " + encodedAuth);
         }

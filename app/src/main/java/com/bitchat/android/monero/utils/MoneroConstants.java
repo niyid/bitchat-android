@@ -31,7 +31,7 @@ public final class MoneroConstants {
     
     // Amount limits
     public static final String MIN_SEND_AMOUNT = "0.000001";
-    public static final String MAX_SEND_AMOUNT = "1000.0";
+    public static final String MAX_SEND_AMOUNT = "18400000.0"; // Full supply cap - matches MoneroValidator.MAX_AMOUNT
     
     // UI update intervals
     public static final long BALANCE_UPDATE_INTERVAL_MS = 30000L; // 30 seconds
