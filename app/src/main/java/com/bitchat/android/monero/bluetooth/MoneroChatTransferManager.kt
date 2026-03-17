@@ -134,21 +134,13 @@ class MoneroChatTransferManager(
         }
 
         val amountXmr = amount.toDoubleOrNull() ?: run {
-            onError("Invalid amount")
+            onError("Invalid amount: $amount")
             return
         }
-        
-        val cachedBalance = amount.toLongOrNull() ?: run {
-            onError("Invalid amount")
-            return
-        }
-        
-        val cachedUnlockedBalance = amount.toLongOrNull() ?: run {
-            onError("Invalid amount")
-            return
-        }                
 
-        walletSuite.sendTransaction(receiverMoneroAddress, amountXmr, cachedBalance, cachedUnlockedBalance, object : WalletSuite.TransactionCallback {
+        val cachedBalance = walletSuite.getBalanceValue()
+        val cachedUnlockedBalance = walletSuite.getUnlockedBalanceValue()
+         walletSuite.sendTransaction(receiverMoneroAddress, amountXmr, cachedBalance, cachedUnlockedBalance, object : WalletSuite.TransactionCallback {
             override fun onSuccess(txId: String, amount: Long) {
                 val msg = messageHandler.createTransactionIdMessage(
                     txId = txId,
@@ -255,7 +247,12 @@ class MoneroChatTransferManager(
     }
 
     fun handleIncomingTransactionBlob(payment: MoneroMessageHandler.MoneroPaymentMessage, onSuccess: () -> Unit, onError: (String) -> Unit) {
-        walletSuite.importSignedTransactionBlob(payment.signedTxBlob, object : WalletSuite.TransactionImportCallback {
+        val blob = payment.signedTxBlob
+        if (blob == null) {
+            onError("No transaction blob in payment message")
+            return
+        }
+        walletSuite.importSignedTransactionBlob(blob, object : WalletSuite.TransactionImportCallback {
             override fun onSuccess(txId: String) {
                 val msg = messageHandler.createPaymentStatusMessage(txId, "Imported and relayed")
                 sendMessageCallback(payment.fromUser, msg)
