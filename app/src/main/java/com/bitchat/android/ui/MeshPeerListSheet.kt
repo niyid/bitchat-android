@@ -145,6 +145,9 @@ fun MeshPeerListSheet(
     }
     val sheetScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val pendingTransactions by viewModel.pendingTransactionSearches.collectAsStateWithLifecycle()
+    var showTransactionSearchDialog by remember { mutableStateOf(false) }
+    var showPendingTransactionsSheet by remember { mutableStateOf(false) }
 
     // Bottom sheet state
     val sheetState = rememberModalBottomSheetState(
@@ -420,7 +423,6 @@ fun MeshPeerListSheet(
                                     )
                                 )
                             }
-
                             else -> {
                                 PeopleSection(
                                     modifier = Modifier.padding(
@@ -446,6 +448,22 @@ fun MeshPeerListSheet(
                                 )
                             }
                         }
+                    }
+
+                    // Monero tools section
+                    item(key = "monero_tools") {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        MoneroToolsSection(
+                            pendingCount = pendingTransactions.size,
+                            onSearchClick = {
+                                showTransactionSearchDialog = true
+                                onDismiss()
+                            },
+                            onPendingClick = {
+                                showPendingTransactionsSheet = true
+                                onDismiss()
+                            }
+                        )
                     }
                 }
 
@@ -1970,6 +1988,101 @@ fun PrivateChatSheet(
                         val dismiss = LocalSheetDismiss.current
                         CloseButton(onClick = { dismiss?.invoke() ?: onDismiss() })
                     }
+                }
+            }
+        }
+    }
+}
+
+// ── Monero tools added from SidebarComponents ────────────────────────────
+
+@Composable
+private fun MoneroToolsSection(
+    pendingCount: Int,
+    onSearchClick: () -> Unit,
+    onPendingClick: () -> Unit
+) {
+    val colorScheme = MaterialTheme.colorScheme
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.CurrencyExchange,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = "MONERO TOOLS",
+                style = MaterialTheme.typography.labelSmall,
+                color = colorScheme.onSurface.copy(alpha = 0.6f),
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onSearchClick() }
+                .padding(horizontal = 24.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search transaction",
+                modifier = Modifier.size(16.dp),
+                tint = colorScheme.onSurface.copy(alpha = 0.7f)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "Search Transaction",
+                style = MaterialTheme.typography.bodyMedium,
+                color = colorScheme.onSurface
+            )
+        }
+
+        if (pendingCount > 0) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onPendingClick() }
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.HourglassEmpty,
+                    contentDescription = "Pending transactions",
+                    modifier = Modifier.size(16.dp),
+                    tint = Color(0xFFFF9800)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Pending Transactions",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFFFF9800), shape = RoundedCornerShape(10.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .defaultMinSize(minWidth = 20.dp, minHeight = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = pendingCount.toString(),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = Color.White
+                    )
                 }
             }
         }
