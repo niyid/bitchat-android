@@ -18,6 +18,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import android.content.Context
 import android.util.Log
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.bitchat.android.monero.wallet.WalletSuite
 import java.io.File
 import java.io.FileOutputStream
@@ -259,8 +261,6 @@ fun saveDaemonConfig(context: Context, config: DaemonConfig): Boolean {
         val properties = Properties().apply {
             setProperty("daemon.address", config.host)
             setProperty("daemon.port", config.port)
-            setProperty("daemon.username", config.username)
-            setProperty("daemon.password", config.password)
             setProperty("daemon.ssl", config.ssl.toString())
             setProperty("wallet.networktype", config.networkType)
         }
@@ -307,8 +307,8 @@ fun loadDaemonConfig(context: Context): DaemonConfig {
         DaemonConfig(
             host = properties.getProperty("daemon.address", "node.moneroworld.com"),
             port = properties.getProperty("daemon.port", "18089"),
-            username = properties.getProperty("daemon.username", ""),
-            password = properties.getProperty("daemon.password", ""),
+            username = username,
+            password = password,
             ssl = properties.getProperty("daemon.ssl", "true").toBoolean(),
             networkType = properties.getProperty("wallet.networktype", "mainnet")
         )

@@ -24,20 +24,27 @@ public class MoneroTransactionManager {
         private final int port;
         private final String username;
         private final String password;
+        private final boolean ssl;
         private final String rpcUrl;
 
         public NodeConnection(String host, int port, String username, String password) {
+            this(host, port, username, password, false);
+        }
+
+        public NodeConnection(String host, int port, String username, String password, boolean ssl) {
             this.host = host;
             this.port = port;
             this.username = username;
             this.password = password;
-            this.rpcUrl = "http://" + host + ":" + port + "/json_rpc";
+            this.ssl = ssl;
+            this.rpcUrl = (ssl ? "https://" : "http://") + host + ":" + port + "/json_rpc";
         }
 
         public String getHost() { return host; }
         public int getPort() { return port; }
         public String getUsername() { return username; }
         public String getPassword() { return password; }
+        public boolean isSsl() { return ssl; }
         public String getRpcUrl() { return rpcUrl; }
     }
     
