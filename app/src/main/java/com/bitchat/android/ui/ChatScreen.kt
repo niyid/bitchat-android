@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.IconButton
@@ -47,6 +48,13 @@ import com.bitchat.android.nostr.LocationNotesManager
 import com.bitchat.android.nostr.NearbyNotesController
 import com.bitchat.android.ui.media.FullScreenImageViewer
 import com.bitchat.android.ui.theme.BitchatMotion
+import android.util.Log
+import androidx.compose.material.icons.automirrored.filled.Send
+import com.bitchat.android.monero.wallet.WalletSuite
+import com.bitchat.android.monero.messaging.MoneroMessageHandler
+import com.bitchat.android.monero.bluetooth.MoneroChatTransferManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Main ChatScreen - REFACTORED to use component-based architecture
@@ -89,6 +97,29 @@ fun ChatScreen(viewModel: ChatViewModel) {
     var showPasswordDialog by remember { mutableStateOf(false) }
     var passwordInput by remember { mutableStateOf("") }
     var showLocationChannelsSheet by remember { mutableStateOf(false) }
+
+    // ── Monero state ──────────────────────────────────────────────────────
+    val walletSuite = viewModel.walletSuite
+    val moneroMessageHandler = viewModel.moneroMessageHandler
+    val isMoneroModeActive = viewModel.isMoneroModeActive
+    val walletStatusMessage = viewModel.walletStatusMessage
+    val isWalletReady = viewModel.isWalletReady
+    val peerMoneroAddresses by viewModel.peerMoneroAddresses
+    val moneroChatTransferManager = viewModel.moneroChatTransferManager
+    val myWalletAddress by viewModel.myWalletAddress.collectAsStateWithLifecycle()
+    val showDaemonConfigDialog = viewModel.showDaemonConfigDialog
+    val daemonConfigLoading = viewModel.daemonConfigLoading
+    val currentBalance = viewModel.currentBalance
+    val isSyncing = viewModel.isSyncing
+    val syncProgress = viewModel.syncProgress
+    val pendingTransactions by viewModel.pendingTransactionSearches.collectAsStateWithLifecycle()
+    var showMoneroConfirmDialog by remember { mutableStateOf(false) }
+    var pendingMoneroAmount by remember { mutableStateOf(0.0) }
+    var pendingMoneropeer by remember { mutableStateOf("") }
+    var pendingMoneroAddress by remember { mutableStateOf("") }
+    var showTransactionSearchDialog by remember { mutableStateOf(false) }
+    var showPendingTransactionsSheet by remember { mutableStateOf(false) }
+    // ── End Monero state ──────────────────────────────────────────────────
     var showLocationNotesSheet by remember { mutableStateOf(false) }
     var showUserSheet by remember { mutableStateOf(false) }
     var selectedUserForSheet by remember { mutableStateOf("") }
@@ -257,6 +288,81 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 
     // Use WindowInsets to handle keyboard properly
+
+    // ── Monero transaction sender ─────────────────────────────────────────
+    fun sendMoneroTransaction(amount: Double, peer: String, toAddress: String, cachedBalance: Long, cachedUnlocked: Long) {
+        Log.d("ChatScreen", "=== MONERO SEND INITIATED ===")
+        Log.d("ChatScreen", "Amount to send: $amount")
+        viewModel.addSystemMessage("⏳ Preparing transaction of $amount XMR...")
+        walletSuite?.sendTransaction(
+            toAddress,
+            amount,
+            cachedBalance,
+            cachedUnlocked,
+            object : WalletSuite.TransactionCallback {
+                override fun onSuccess(txId: String, sentAmount: Long) {
+                    val sentAmountXmr = WalletSuite.convertAtomicToXmr(sentAmount)
+                    Log.i("ChatScreen", "=== MONERO SEND SUCCESSFUL === Amount: $sentAmountXmr XMR")
+                    viewModel.addSystemMessage("✅ Sent $sentAmountXmr XMR successfully")
+                    val txMessage = moneroMessageHandler.createTransactionIdMessage(
+                        txId = txId,
+                        amount = sentAmountXmr,
+                        toAddress = toAddress
+                    )
+                    viewModel.sendDirectMessage(peer, txMessage)
+                }
+                override fun onError(error: String) {
+                    Log.e("ChatScreen", "=== MONERO SEND FAILED === $error")
+                    viewModel.addSystemMessage("❌ Transaction failed: $error")
+                }
+            }
+        )
+    }
+    // ── End Monero transaction sender ─────────────────────────────────────
+
+    // ── Wallet initialization ─────────────────────────────────────────────
+    LaunchedEffect(Unit) {
+        viewModel.initializeWalletSuite(context, object : WalletSuite.WalletStatusListener {
+            override fun onWalletInitialized(success: Boolean, message: String) {
+                viewModel.updateWalletReadyState(success)
+                if (success) {
+                    viewModel.updateWalletStatusMessage("Wallet ready")
+                    walletSuite?.getAddress(object : WalletSuite.AddressCallback {
+                        override fun onSuccess(address: String) {
+                            viewModel.updateMyWalletAddress(address)
+                        }
+                        override fun onError(error: String) {
+                            Log.e("ChatScreen", "Failed to get address: $error")
+                        }
+                    })
+                } else {
+                    viewModel.updateWalletStatusMessage("Init failed: $message")
+                }
+            }
+            override fun onBalanceUpdated(balance: Long, unlockedBalance: Long) {
+                viewModel.updateCachedBalance(balance)
+                viewModel.updateCachedUnlockedBalance(unlockedBalance)
+                viewModel.updateCurrentBalance(WalletSuite.convertAtomicToXmr(unlockedBalance))
+            }
+            override fun onSyncProgress(height: Long, startHeight: Long, targetHeight: Long, percentDone: Double) {
+                val syncing = percentDone < 100.0
+                viewModel.updateSyncState(syncing, percentDone.toInt())
+                if (syncing) viewModel.updateWalletStatusMessage("Syncing: ${percentDone.toInt()}%")
+                else viewModel.updateWalletStatusMessage("Synchronized")
+            }
+        })
+    }
+
+    LaunchedEffect(selectedPrivatePeer, isWalletReady, myWalletAddress) {
+        val address = myWalletAddress
+        val peer = selectedPrivatePeer
+        if (peer != null && isWalletReady && address != null) {
+            if (!viewModel.moneroAddressSentTo.contains(peer)) {
+                viewModel.shareMoneroAddressWithPeer(peer, address)
+            }
+        }
+    }
+    // ── End Wallet initialization ─────────────────────────────────────────
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -382,6 +488,10 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
     }
 
+        val canReceiveMonero = selectedPrivatePeer != null &&
+            isWalletReady &&
+            peerMoneroAddresses.containsKey(selectedPrivatePeer)
+
     ChatInputSection(
         modifier = Modifier
             .align(Alignment.BottomCenter)
@@ -397,14 +507,27 @@ fun ChatScreen(viewModel: ChatViewModel) {
         },
         onSend = {
             if (messageText.text.trim().isNotEmpty()) {
-                viewModel.sendMessage(messageText.text.trim()) { accepted ->
-                    if (accepted) {
-                        messageText = TextFieldValue("")
-                        viewModel.setConversationDraft(selectedPrivatePeer, "")
-                        // Clearing the field in code does not run onMessageTextChange,
-                        // so the popups have to be dismissed here.
-                        viewModel.clearSuggestions()
-                        forceScrollToBottom = !forceScrollToBottom
+                if (isMoneroModeActive) {
+                    val receiverMoneroAddress = peerMoneroAddresses[selectedPrivatePeer]
+                    val amount = messageText.text.toDoubleOrNull() ?: 0.0
+                    if (amount > 0 && receiverMoneroAddress != null) {
+                        pendingMoneroAmount = amount
+                        pendingMoneropeer = selectedPrivatePeer ?: ""
+                        pendingMoneroAddress = receiverMoneroAddress
+                        showMoneroConfirmDialog = true
+                    } else {
+                        viewModel.addSystemMessage("❌ Invalid amount or missing address")
+                    }
+                } else {
+                    viewModel.sendMessage(messageText.text.trim()) { accepted ->
+                        if (accepted) {
+                            messageText = TextFieldValue("")
+                            viewModel.setConversationDraft(selectedPrivatePeer, "")
+                            // Clearing the field in code does not run onMessageTextChange,
+                            // so the popups have to be dismissed here.
+                            viewModel.clearSuggestions()
+                            forceScrollToBottom = !forceScrollToBottom
+                        }
                     }
                 }
             }
@@ -439,11 +562,19 @@ fun ChatScreen(viewModel: ChatViewModel) {
                         selection = TextRange(mentionText.length)
                     )
                 },
-                selectedPrivatePeer = null,
+                selectedPrivatePeer = selectedPrivatePeer,
                 currentChannel = currentChannel,
                 nickname = nickname,
                 colorScheme = colorScheme,
-                showMediaButtons = showMediaButtons
+                showMediaButtons = showMediaButtons,
+                isMoneroModeActive = isMoneroModeActive,
+                onMoneroModeToggle = {
+                    if (canReceiveMonero && isWalletReady) {
+                        viewModel.isMoneroModeActive = !isMoneroModeActive
+                    }
+                },
+                canReceiveMonero = canReceiveMonero,
+                isWalletReady = isWalletReady
             )
           }
         }
@@ -462,7 +593,15 @@ fun ChatScreen(viewModel: ChatViewModel) {
             onLocationNotesClick = {
                 nearbyNotesController.reveal()
                 showLocationNotesSheet = true
-            }
+            },
+            onTransactionSearchClick = { showTransactionSearchDialog = true },
+            onPendingTransactionsClick = { showPendingTransactionsSheet = true },
+            isWalletReady = isWalletReady,
+            currentBalance = currentBalance,
+            walletStatusMessage = walletStatusMessage,
+            isSyncing = isSyncing,
+            syncProgress = syncProgress,
+            pendingCount = pendingTransactions.size
         )
 
         // Scroll-to-bottom floating button
@@ -514,6 +653,55 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 
     // Dialogs and Sheets
+
+    // ── Monero dialogs ────────────────────────────────────────────────────
+    TransactionSearchDialog(
+        isVisible = showTransactionSearchDialog,
+        onDismiss = { showTransactionSearchDialog = false },
+        onSearch = { txId -> viewModel.searchForMissingTransaction(txId) }
+    )
+
+    if (showMoneroConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showMoneroConfirmDialog = false },
+            title = { Text("Confirm Monero Transaction") },
+            text = {
+                Column {
+                    Text("Send $pendingMoneroAmount XMR to:")
+                    Text(
+                        text = if (pendingMoneroAddress.length > 20)
+                            "${pendingMoneroAddress.take(10)}...${pendingMoneroAddress.takeLast(10)}"
+                        else pendingMoneroAddress,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showMoneroConfirmDialog = false
+                    sendMoneroTransaction(
+                        pendingMoneroAmount,
+                        pendingMoneropeer,
+                        pendingMoneroAddress,
+                        viewModel.getCachedBalance(),
+                        viewModel.getCachedUnlockedBalance()
+                    )
+                }) { Text("Send") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMoneroConfirmDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    DaemonConfigDialog(
+        isVisible = showDaemonConfigDialog,
+        isLoading = daemonConfigLoading,
+        onDismiss = { viewModel.hideDaemonConfigDialog() },
+        onSave = { config -> viewModel.saveDaemonConfigAndReconnect(config) }
+    )
+    // ── End Monero dialogs ────────────────────────────────────────────────
+
     ChatDialogs(
         showPasswordDialog = showPasswordDialog,
         passwordPromptChannel = passwordPromptChannel,
@@ -645,6 +833,10 @@ fun ChatInputSection(
     colorScheme: ColorScheme,
     showMediaButtons: Boolean,
     recorderFactory: ((String?, String?) -> com.bitchat.android.features.voice.VoiceRecorder)? = null,
+    isMoneroModeActive: Boolean = false,
+    onMoneroModeToggle: () -> Unit = {},
+    canReceiveMonero: Boolean = false,
+    isWalletReady: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -761,7 +953,15 @@ private fun ChatFloatingHeader(
     onShowAppInfo: () -> Unit,
     onPanicClear: () -> Unit,
     onLocationChannelsClick: () -> Unit,
-    onLocationNotesClick: () -> Unit
+    onLocationNotesClick: () -> Unit,
+    onTransactionSearchClick: () -> Unit = {},
+    onPendingTransactionsClick: () -> Unit = {},
+    isWalletReady: Boolean = false,
+    currentBalance: String = "0.000000",
+    walletStatusMessage: String = "",
+    isSyncing: Boolean = false,
+    syncProgress: Int = 0,
+    pendingCount: Int = 0
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val locationManager = remember { com.bitchat.android.geohash.LocationChannelManager.getInstance(context) }
@@ -783,35 +983,48 @@ private fun ChatFloatingHeader(
             )
             .windowInsetsPadding(WindowInsets.statusBars) // Extend into status bar area
     ) {
-        // No TopAppBar: it silently injects a 4.dp horizontal pad plus a 12.dp title inset and
-        // applies its own minimum heights, which made the header's spacing impossible to specify
-        // exactly. Height and edge insets belong to each header variant, so that a conversation
-        // header rendered here and one rendered in a sheet are laid out identically.
-        ChatHeaderContent(
-            selectedPrivatePeer = selectedPrivatePeer,
-            currentChannel = currentChannel,
-            nickname = nickname,
-            viewModel = viewModel,
-            onBackClick = {
-                when {
-                    selectedPrivatePeer != null -> viewModel.endPrivateChat()
-                    currentChannel != null -> viewModel.switchToChannel(null)
+        Column {
+            // No TopAppBar: it silently injects a 4.dp horizontal pad plus a 12.dp title inset and
+            // applies its own minimum heights, which made the header's spacing impossible to specify
+            // exactly. Height and edge insets belong to each header variant, so that a conversation
+            // header rendered here and one rendered in a sheet are laid out identically.
+            ChatHeaderContent(
+                selectedPrivatePeer = selectedPrivatePeer,
+                currentChannel = currentChannel,
+                nickname = nickname,
+                viewModel = viewModel,
+                onBackClick = {
+                    when {
+                        selectedPrivatePeer != null -> viewModel.endPrivateChat()
+                        currentChannel != null -> viewModel.switchToChannel(null)
+                    }
+                },
+                onSidebarClick = onSidebarToggle,
+                onTripleClick = onPanicClear,
+                onShowAppInfo = onShowAppInfo,
+                onLocationChannelsClick = onLocationChannelsClick,
+                onLocationNotesClick = {
+                    // Ensure location is loaded before showing sheet
+                    locationManager.refreshChannels()
+                    onLocationNotesClick()
                 }
-            },
-            onSidebarClick = onSidebarToggle,
-            onTripleClick = onPanicClear,
-            onShowAppInfo = onShowAppInfo,
-            onLocationChannelsClick = onLocationChannelsClick,
-            onLocationNotesClick = {
-                // Ensure location is loaded before showing sheet
-                locationManager.refreshChannels()
-                onLocationNotesClick()
+            )
+            if (isWalletReady || isSyncing) {
+                MoneroWalletStatusBar(
+                    isWalletReady = isWalletReady,
+                    currentBalance = currentBalance,
+                    walletStatusMessage = walletStatusMessage,
+                    isSyncing = isSyncing,
+                    syncProgress = syncProgress,
+                    pendingCount = pendingCount,
+                    onTransactionSearchClick = onTransactionSearchClick,
+                    onPendingTransactionsClick = onPendingTransactionsClick
+                )
             }
-        )
+        }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatDialogs(
     showPasswordDialog: Boolean,
@@ -933,5 +1146,58 @@ private fun ChatDialogs(
                 viewModel.endPrivateChat()
             }
         )
+    }
+}
+
+@Composable
+private fun MoneroWalletStatusBar(
+    isWalletReady: Boolean,
+    currentBalance: String,
+    walletStatusMessage: String,
+    isSyncing: Boolean,
+    syncProgress: Int,
+    pendingCount: Int,
+    onTransactionSearchClick: () -> Unit,
+    onPendingTransactionsClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = if (isSyncing) "Syncing: $syncProgress%" else if (isWalletReady) "XMR: $currentBalance" else walletStatusMessage,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    color = if (isSyncing) Color(0xFFFF9500) else Color(0xFF4CAF50)
+                )
+                if (pendingCount > 0) {
+                    Text(
+                        text = "$pendingCount pending",
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFFF9500)
+                    )
+                }
+            }
+            Row {
+                IconButton(onClick = onTransactionSearchClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.Search, contentDescription = "Search transaction",
+                        modifier = Modifier.size(16.dp))
+                }
+                if (pendingCount > 0) {
+                    IconButton(onClick = onPendingTransactionsClick, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Retry pending",
+                            modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
     }
 }
