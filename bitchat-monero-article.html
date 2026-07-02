@@ -49,7 +49,6 @@
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   html { scroll-behavior: smooth; }
 
   body {
@@ -712,7 +711,7 @@
       <span class="sep">·</span>
       <span>📱 Android · Kotlin/Java</span>
       <span class="sep">·</span>
-      <span>⏱ 10 min read</span>
+      <span>⏱ 13 min read</span>
     </div>
 
     <p class="hero-lead">
@@ -761,8 +760,9 @@
 
     <p>
       This fork of <code>bitchat-android</code>, on the <code>with-monero</code> branch, follows
-      that premise through: it wires a real Monero wallet — built on the same <code>libmonero</code>
-      JNI bindings used by the Monerujo wallet — into Bitchat's existing Bluetooth mesh, encryption
+      that premise through: it wires a real Monero wallet — built on the same Monerujo
+      <code>xmrwallet</code> JNI bindings (<code>com.m2049r.xmrwallet</code>) used by that
+      well-known standalone Monero wallet app — into Bitchat's existing Bluetooth mesh, encryption
       layer, and chat UI, so that a payment is just another message type flowing through a channel
       that already exists.
     </p>
@@ -771,14 +771,13 @@
       <div class="callout-icon">💭</div>
       <div class="callout-body">
         <strong>A decade-old idea, revisited</strong>
-        <p>I had a version of this idea a long time before this fork existed. Back in December 2016,
-        while consulting on an R&amp;D proposal for a technology company, I pitched a Bluetooth-based
-        chat app I called <em>Toastr</em> (originally "Toaster") — proximity-based messaging between
-        strangers in the same physical space, over Bluetooth, no server involved. The wrapper for
-        this article draws that line explicitly. What's below is not that pitch — it's someone
-        else's mesh, extended with someone else's wallet library — but the shape of the idea, phone
-        to phone over Bluetooth with no infrastructure in between, is the same one I wrote down
-        nearly a decade earlier.</p>
+        <p>I had a version of this idea a long time before this fork existed. Back in December 2016
+        I pitched a Bluetooth-based chat app I called <em>Toastr</em> (originally "Toaster"), in a
+        written proposal at the time — proximity-based messaging between strangers in the same
+        physical space, over Bluetooth, no server involved. What's below is not that pitch — it's
+        someone else's mesh, extended with a Monero wallet — but the shape of the idea, phone to
+        phone with no infrastructure in between, is the same one I wrote down nearly a decade
+        earlier.</p>
       </div>
     </div>
   </section>
@@ -789,8 +788,8 @@
     <h2>A Monero Wallet Grafted Onto Bitchat's Existing Mesh</h2>
 
     <p>
-      The integration lands as a self-contained <code>monero</code> package alongside a ported
-      subset of the <code>com.m2049r.xmrwallet</code> wallet library (the JNI bindings behind the
+      The integration lands as a self-contained <code>com.bitchat.android.monero</code> package
+      alongside the Monerujo <code>xmrwallet</code> wallet library (the JNI bindings behind the
       well-known Monerujo Android wallet), plus native headers for <code>Wallet</code>,
       <code>WalletManager</code>, and <code>PendingTransaction</code>. Nothing about Bitchat's
       core mesh, encryption, or UI framework was replaced — the wallet code plugs into it as an
@@ -799,7 +798,7 @@
     </p>
 
     <div class="tech-stack">
-      <div class="tech-pill"><span class="dot dot-violet"></span> Monero JNI (libmonero / xmrwallet)</div>
+      <div class="tech-pill"><span class="dot dot-violet"></span> Monerujo xmrwallet JNI</div>
       <div class="tech-pill"><span class="dot dot-green"></span> Bluetooth LE Mesh (Bitchat core)</div>
       <div class="tech-pill"><span class="dot dot-blue"></span> TxID-based &amp; blob-based send flows</div>
       <div class="tech-pill"><span class="dot dot-amber"></span> Multi-node transaction search</div>
@@ -808,7 +807,7 @@
     </div>
 
     <p>
-      The footprint is substantial for a fork: roughly 5,000 lines across eleven new files —
+      The footprint is substantial for a fork: roughly 5,100 lines across twelve new files —
       a wallet state machine, a transaction manager with multi-node failover, a message protocol
       for payments and payment requests, chat-bubble UI components for sent and received
       transactions, and a Bluetooth transfer layer that fragments transaction data to fit
@@ -854,7 +853,8 @@
         <h3>MoneroMessageHandler</h3>
         <p>Defines the payment protocol carried inside ordinary Bitchat messages — payments,
         payment requests, address shares, status updates, and transaction search — as immutable
-        JSON-typed messages, with a legacy bracket-prefixed format kept for compatibility.</p>
+        JSON-typed messages, with a legacy bracket-prefixed format (<code>[MONERO_PAYMENT]</code>,
+        <code>[MONERO_TXID]</code>, etc.) kept for compatibility.</p>
       </div>
     </div>
   </section>
@@ -924,27 +924,7 @@
       </div>
     </div>
 
-    <p>
-      A second, heavier path — <code>BLOB_BASED</code> — exists for moving the raw signed
-      transaction blob itself across the mesh, fragmented to match Bitchat's packet size limits,
-      rather than relying on a daemon to relay it. A <code>BOTH</code> mode attempts the TxID flow
-      first and falls back to the blob flow on failure. In the current branch, the blob path's
-      mesh-integration hooks are still stubs — the app defaults to <code>TXID_BASED</code>, which
-      is fully wired end to end.
-    </p>
-  </section>
-
-  <!-- ═══ SECTION 5: CODE SNIPPET ═══ -->
-  <section>
-    <div class="section-kicker">Under the Hood</div>
-    <h2>A Payment Is Just Another Message Type</h2>
-
-    <p>
-      The cleanest expression of the whole idea is in how a Monero payment travels through the
-      same channel as a text message: it is serialized as a small typed JSON object, indistinguishable
-      in transport terms from any other Bitchat packet, and only interpreted specially by the UI
-      layer once received.
-    </p>
+    <p>This is the actual routing logic that decides which of the two flows a send takes:</p>
 
     <div class="code-block">
       <div class="code-header">
@@ -978,7 +958,143 @@
       On the wallet side, the state machine that guards every sensitive operation is deliberately
       narrow — a transaction can only be created or submitted from <code>IDLE</code>, and every
       transition back to <code>IDLE</code> happens in a <code>finally</code> block so a failed send
-      can't leave the wallet stuck mid-operation.
+      can't leave the wallet stuck mid-operation. Here's <code>sendWithTxIdFlow()</code> itself,
+      the code that actually runs when <code>TXID_BASED</code> is selected:
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span>MoneroChatTransferManager.kt — sendWithTxIdFlow()</span>
+        <span class="lang">Kotlin</span>
+      </div>
+      <div class="code-body"><span class="kw">val</span> cachedBalance = walletSuite.<span class="fn">getBalanceValue</span>()
+<span class="kw">val</span> cachedUnlockedBalance = walletSuite.<span class="fn">getUnlockedBalanceValue</span>()
+walletSuite.<span class="fn">sendTransaction</span>(receiverMoneroAddress, amountXmr, cachedBalance, cachedUnlockedBalance,
+    <span class="kw">object</span> : WalletSuite.TransactionCallback {
+        <span class="kw">override fun</span> <span class="fn">onSuccess</span>(txId: <span class="ty">String</span>, amount: <span class="ty">Long</span>) {
+            <span class="kw">val</span> msg = messageHandler.<span class="fn">createTransactionIdMessage</span>(
+                txId = txId,
+                amount = WalletSuite.<span class="fn">convertAtomicToXmr</span>(amount),
+                toAddress = receiverMoneroAddress
+            )
+            sendMessageCallback(selectedPrivatePeer, msg)   <span class="cm">// rides out as a normal bitchat DM</span>
+            onSuccess()
+        }
+        <span class="kw">override fun</span> <span class="fn">onError</span>(error: <span class="ty">String</span>) = onError(error)
+    })</div>
+    </div>
+
+    <p>
+      A second, heavier path — <code>BLOB_BASED</code> — exists for moving the raw signed
+      transaction blob itself across the mesh, rather than relying on the sender's own device to
+      reach a daemon at all. <code>createTxBlob()</code> builds and signs the transaction exactly
+      like the TxID flow, but stops one step short: it never calls <code>submitTransaction()</code>.
+      Instead it writes the signed transaction to a temp file and reads the raw bytes back out as
+      base64 — a self-contained artifact that can sit on a phone with no signal indefinitely:
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span>WalletSuite.java — createTxBlob() (offline signing, no broadcast)</span>
+        <span class="lang">Java</span>
+      </div>
+      <div class="code-body"><span class="kw">public void</span> <span class="fn">createTxBlob</span>(<span class="ty">String</span> to, <span class="ty">String</span> amount, TxBlobCallback cb) {
+    executorService.<span class="fn">execute</span>(() -&gt; {
+        <span class="kw">long</span> atomic = Helper.<span class="fn">getAmountFromString</span>(amount);
+        PendingTransaction pendingTx = wallet.<span class="fn">createTransaction</span>(
+            to, <span class="str">""</span>, atomic, <span class="num">15</span>,   <span class="cm">// mixin / ring size</span>
+            PendingTransaction.Priority.Priority_Default.<span class="fn">getValue</span>(), <span class="num">0</span>);
+
+        <span class="ty">String</span> txId = pendingTx.<span class="fn">getFirstTxId</span>();
+        File tempFile = <span class="kw">new</span> File(context.<span class="fn">getCacheDir</span>(), txId + <span class="str">".tx"</span>);
+        pendingTx.<span class="fn">commit</span>(tempFile.<span class="fn">getAbsolutePath</span>(), <span class="kw">true</span>);  <span class="cm">// signs, does NOT broadcast</span>
+
+        <span class="ty">byte</span>[] raw = Files.<span class="fn">readAllBytes</span>(tempFile.<span class="fn">toPath</span>());
+        <span class="ty">String</span> b64 = Base64.<span class="fn">encodeToString</span>(raw, Base64.NO_WRAP);
+        cb.<span class="fn">onSuccess</span>(txId, b64);   <span class="cm">// this blob is what travels over the mesh</span>
+    });
+}</div>
+    </div>
+
+    <p>
+      A blob under 100&nbsp;KB rides out as an ordinary chat message prefixed
+      <code>[XMR_TX_BLOB]</code>; a larger one falls back to Bitchat's own file-transfer path.
+      Whoever ends up with connectivity — sender, receiver, or a relaying peer — closes the loop by
+      submitting the raw bytes to a daemon. That's what happens automatically the moment a blob
+      arrives on the receiving end:
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span>WalletSuite.java — submitTxBlob() (broadcast on receipt)</span>
+        <span class="lang">Java</span>
+      </div>
+      <div class="code-body"><span class="kw">public void</span> <span class="fn">submitTxBlob</span>(<span class="ty">byte</span>[] blobBytes, TxBlobCallback callback) {
+    executorService.<span class="fn">execute</span>(() -&gt; {
+        StringBuilder hexBuilder = <span class="kw">new</span> StringBuilder(blobBytes.length * <span class="num">2</span>);
+        <span class="kw">for</span> (<span class="ty">byte</span> b : blobBytes) {
+            hexBuilder.<span class="fn">append</span>(String.<span class="fn">format</span>(<span class="str">"%02x"</span>, b &amp; <span class="num">0xff</span>));
+        }
+        <span class="ty">String</span> txId = wallet.<span class="fn">submitTransaction</span>(hexBuilder.<span class="fn">toString</span>());
+
+        wallet.<span class="fn">store</span>();
+        <span class="fn">updateBalancesFromWallet</span>();
+        callback.<span class="fn">onSuccess</span>(txId, Base64.<span class="fn">encodeToString</span>(blobBytes, Base64.NO_WRAP));
+    });
+}</div>
+    </div>
+
+    <p>
+      In the current branch, the mesh-integration hooks that would fully automate multi-hop
+      relaying of very large blobs are still stubs — the signing and submission code above is
+      real and works, but the app defaults to <code>TXID_BASED</code> for day-to-day sending,
+      which is fully wired end to end.
+    </p>
+  </section>
+
+  <!-- ═══ SECTION 5: VERIFICATION ═══ -->
+  <section>
+    <div class="section-kicker">Under the Hood</div>
+    <h2>A Payment Is Just Another Message Type</h2>
+
+    <p>
+      The cleanest expression of the whole idea is in how a Monero payment travels through the
+      same channel as a text message: it is serialized as a small typed JSON object, indistinguishable
+      in transport terms from any other Bitchat packet, and only interpreted specially by the UI
+      layer once received.
+    </p>
+
+    <p>
+      That extends to verification, too. A transaction broadcast from a phone with a weak or
+      intermittent connection may reach one public node before it reaches another, so
+      <code>MoneroTransactionManager</code> holds a list of daemon connections rather than just
+      one, and queries all of them in parallel when a peer needs to confirm a payment actually
+      landed:
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span>MoneroTransactionManager.java — searching multiple daemons</span>
+        <span class="lang">Java</span>
+      </div>
+      <div class="code-body"><span class="cm">/**
+ * On any network, transactions may be temporarily inconsistent across
+ * nodes due to propagation delays. Query several nodes in parallel to
+ * find a transaction that may not have reached every one of them yet.
+ */</span>
+<span class="kw">public</span> Transaction <span class="fn">searchTransactionAcrossNodes</span>(<span class="ty">String</span> txid) {
+    List&lt;Future&lt;Transaction&gt;&gt; futures = <span class="kw">new</span> ArrayList&lt;&gt;();
+    ExecutorService executor = Executors.<span class="fn">newFixedThreadPool</span>(nodes.<span class="fn">size</span>());
+    <span class="cm">// ... query each NodeConnection concurrently, return first hit</span>
+}</div>
+    </div>
+
+    <p>
+      This is what powers the transaction-search flow in the UI — paired chat-protocol messages
+      (<code>[MONERO_SEARCH_TX]</code> / <code>[MONERO_TX_FOUND]</code> /
+      <code>[MONERO_TX_NOT_FOUND]</code>) let one peer explicitly ask another "did this transaction
+      land for you?", which matters precisely because on a mesh, "confirmed for me" and "confirmed
+      for you" aren't guaranteed to be the same moment.
     </p>
   </section>
 
