@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bluetooth Mesh, Now With Money: Sending Monero Over Bitchat's Offline Network</title>
+
+<!-- SEO -->
+<meta name="description" content="How a fork of Bitchat Android adds a full Monero wallet — send, receive, and search transactions — over the same Bluetooth mesh network the app uses for messages, with no internet and no server.">
+<meta name="author" content="niyid">
+<meta name="keywords" content="privacy, Monero, XMR, Bluetooth mesh, Bitchat, P2P, open source, Android, offline payments, mesh network">
+
+<!-- Open Graph (Substack, Facebook, LinkedIn link previews) -->
+<meta property="og:type" content="article">
+<meta property="og:title" content="Bluetooth Mesh, Now With Money: Sending Monero Over Bitchat's Offline Network">
+<meta property="og:description" content="A fork of Bitchat Android adds a full Monero wallet to the app's Bluetooth mesh — send, receive, and search transactions with no internet, no server, and no phone number.">
+<meta property="og:url" content="https://niyid.github.io/bitchat-android/bitchat-monero-article.html">
+<meta property="og:site_name" content="Bitchat + Monero">
+<meta property="article:author" content="https://github.com/niyid">
+
+<!-- Twitter/X Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Bluetooth Mesh, Now With Money: Sending Monero Over Bitchat's Offline Network">
+<meta name="twitter:description" content="No internet. No server. No phone number. A technical deep-dive into adding a Monero wallet to Bitchat's Bluetooth mesh network.">
+
+<!-- Canonical -->
+<link rel="canonical" href="https://niyid.github.io/bitchat-android/bitchat-monero-article.html">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=DM+Sans:wght@300;400;500&family=IBM+Plex+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg:           #06080d;
+    --surface:      #0c1018;
+    --panel:        #101520;
+    --border:       #1c2433;
+    --border-hi:    #2a3a52;
+    --emerald:      #10b981;
+    --emerald-dim:  rgba(16,185,129,0.15);
+    --amber:        #f59e0b;
+    --amber-dim:    rgba(245,158,11,0.12);
+    --red:          #ef4444;
+    --red-dim:      rgba(239,68,68,0.12);
+    --blue:         #60a5fa;
+    --blue-dim:     rgba(96,165,250,0.12);
+    --violet:       #a78bfa;
+    --text:         #e2e8f0;
+    --muted:        #64748b;
+    --muted-hi:     #94a3b8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    line-height: 1.75;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(16,185,129,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16,185,129,0.025) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  .hero {
+    padding: 80px 0 64px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 64px;
+    position: relative;
+  }
+
+  .hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--emerald);
+    margin-bottom: 28px;
+  }
+
+  .hero-eyebrow::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 1px;
+    background: var(--emerald);
+  }
+
+  h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(36px, 6vw, 64px);
+    font-weight: 900;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin-bottom: 28px;
+  }
+
+  h1 .accent { color: var(--emerald); }
+  h1 .italic { font-style: italic; }
+
+  .hero-meta {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+  }
+
+  .hero-meta span { display: flex; align-items: center; gap: 6px; }
+  .hero-meta .sep { color: var(--border-hi); }
+
+  .hero-lead {
+    font-size: 18px;
+    font-weight: 300;
+    color: var(--muted-hi);
+    line-height: 1.7;
+    max-width: 680px;
+    border-left: 3px solid var(--emerald);
+    padding-left: 20px;
+  }
+
+  .coin-hero {
+    position: absolute;
+    right: -10px;
+    top: 44px;
+    width: 180px;
+    opacity: 0.07;
+    pointer-events: none;
+  }
+
+  section { margin-bottom: 72px; }
+
+  .section-kicker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--emerald);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-kicker::after {
+    content: '';
+    display: block;
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  h2 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(24px, 3.5vw, 36px);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.015em;
+    margin-bottom: 24px;
+  }
+
+  h3 {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+
+  p { margin-bottom: 18px; color: var(--muted-hi); }
+  p:last-child { margin-bottom: 0; }
+
+  strong { color: var(--text); font-weight: 500; }
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9em;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--emerald);
+  }
+
+  .pull-quote {
+    background: var(--emerald-dim);
+    border: 1px solid rgba(16,185,129,0.25);
+    border-left: 4px solid var(--emerald);
+    border-radius: 0 8px 8px 0;
+    padding: 24px 28px;
+    margin: 32px 0;
+  }
+
+  .pull-quote p {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1.6;
+    color: var(--text);
+    margin-bottom: 10px;
+  }
+
+  .pull-quote cite {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--emerald);
+    text-transform: uppercase;
+  }
+
+  .threat-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 28px;
+    margin: 32px 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .threat-diagram::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--red), var(--amber), var(--emerald));
+  }
+
+  .diagram-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 24px;
+  }
+
+  .threat-svg { width: 100%; height: auto; display: block; }
+
+  .pillars-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 32px 0;
+  }
+
+  @media (max-width: 600px) { .pillars-grid { grid-template-columns: 1fr; } }
+
+  .pillar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .pillar:hover { border-color: var(--border-hi); }
+
+  .pillar-icon {
+    font-size: 28px;
+    margin-bottom: 12px;
+    display: block;
+  }
+
+  .pillar-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+
+  .pillar h3 {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .pillar p {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  .pillar-emerald { border-left: 3px solid var(--emerald); }
+  .pillar-amber   { border-left: 3px solid var(--amber); }
+  .pillar-blue    { border-left: 3px solid var(--blue); }
+  .pillar-violet  { border-left: 3px solid var(--violet); }
+
+  .code-block {
+    background: #070a0f;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 28px 0;
+    font-size: 13px;
+  }
+
+  .code-header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .code-header span {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+  }
+
+  .code-header .lang {
+    color: var(--emerald);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .code-body {
+    padding: 20px 20px;
+    font-family: 'IBM Plex Mono', monospace;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+    font-size: 12.5px;
+  }
+
+  .kw { color: #c792ea; }
+  .fn { color: #82aaff; }
+  .str { color: #c3e88d; }
+  .num { color: #f78c6c; }
+  .cm { color: #546e7a; font-style: italic; }
+  .ty { color: #ffcb6b; }
+  .prop { color: var(--emerald); }
+
+  .flow-diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 28px;
+    margin: 32px 0;
+  }
+
+  .flow-steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+    margin-top: 8px;
+  }
+
+  .flow-step {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 16px;
+    align-items: flex-start;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  .flow-step:last-child { border-bottom: none; }
+
+  .flow-step-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .step-emerald { background: var(--emerald-dim); color: var(--emerald); border: 1px solid rgba(16,185,129,0.3); }
+  .step-amber   { background: var(--amber-dim);   color: var(--amber);   border: 1px solid rgba(245,158,11,0.3); }
+  .step-blue    { background: var(--blue-dim);     color: var(--blue);    border: 1px solid rgba(96,165,250,0.3); }
+  .step-red     { background: var(--red-dim);      color: var(--red);     border: 1px solid rgba(239,68,68,0.3); }
+  .step-violet  { background: rgba(167,139,250,0.12); color: var(--violet); border: 1px solid rgba(167,139,250,0.3); }
+
+  .flow-step-content strong {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+
+  .flow-step-content p {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  .privacy-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--emerald-dim);
+    border: 1px solid rgba(16,185,129,0.25);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--emerald);
+    letter-spacing: 0.08em;
+    margin-top: 6px;
+  }
+
+  .compare-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 28px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .compare-header {
+    display: grid;
+    grid-template-columns: 160px 1fr 1fr;
+    background: var(--panel);
+    border-bottom: 2px solid var(--border-hi);
+  }
+
+  .compare-header-cell {
+    padding: 12px 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .compare-header-cell:nth-child(1) { color: var(--muted); }
+  .compare-header-cell:nth-child(2) { color: var(--red); border-left: 1px solid var(--border); }
+  .compare-header-cell:nth-child(3) { color: var(--emerald); border-left: 1px solid var(--border); }
+
+  .compare-row {
+    display: grid;
+    grid-template-columns: 160px 1fr 1fr;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+
+  .compare-row:last-child { border-bottom: none; }
+  .compare-row:hover { background: rgba(255,255,255,0.018); }
+
+  .compare-cell {
+    padding: 14px 16px;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .compare-cell:nth-child(2),
+  .compare-cell:nth-child(3) { border-left: 1px solid var(--border); }
+
+  .compare-cell.dim-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .compare-cell.bad  { color: #f87171; }
+  .compare-cell.good { color: #34d399; }
+  .compare-cell.mid  { color: var(--amber); }
+
+  @media (max-width: 580px) {
+    .compare-header { grid-template-columns: 1fr; }
+    .compare-header-cell:nth-child(1) { display: none; }
+    .compare-header-cell:nth-child(2),
+    .compare-header-cell:nth-child(3) { border-left: none; border-top: 1px solid var(--border); }
+    .compare-row { grid-template-columns: 1fr; }
+    .compare-cell.dim-label {
+      background: var(--panel);
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 8px 16px 4px;
+    }
+    .compare-cell:nth-child(2),
+    .compare-cell:nth-child(3) { border-left: none; padding-top: 6px; padding-bottom: 6px; }
+    .compare-cell:nth-child(3) { padding-bottom: 14px; }
+  }
+
+  .tech-stack {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 20px 0;
+  }
+
+  .tech-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted-hi);
+    letter-spacing: 0.05em;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .tech-pill:hover { border-color: var(--border-hi); color: var(--text); }
+  .tech-pill .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green  { background: var(--emerald); }
+  .dot-amber  { background: var(--amber); }
+  .dot-blue   { background: var(--blue); }
+  .dot-violet { background: var(--violet); }
+
+  .callout {
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin: 24px 0;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+
+  .callout-warn {
+    background: var(--amber-dim);
+    border: 1px solid rgba(245,158,11,0.25);
+  }
+
+  .callout-info {
+    background: var(--blue-dim);
+    border: 1px solid rgba(96,165,250,0.25);
+  }
+
+  .callout-good {
+    background: var(--emerald-dim);
+    border: 1px solid rgba(16,185,129,0.25);
+  }
+
+  .callout-icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+
+  .callout-body p { font-size: 13.5px; margin: 0; line-height: 1.6; }
+  .callout-body strong { display: block; margin-bottom: 4px; font-size: 13px; }
+
+  .status-table {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 28px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    font-size: 13px;
+  }
+
+  .status-row {
+    display: grid;
+    grid-template-columns: 1fr 90px 2fr;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .status-row:last-child { border-bottom: none; }
+  .status-row.head {
+    background: var(--panel);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .status-cell { padding: 12px 16px; border-left: 1px solid var(--border); }
+  .status-cell:first-child { border-left: none; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted-hi); }
+
+  .status-pill {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .status-solid { background: var(--emerald-dim); color: var(--emerald); }
+  .status-partial { background: var(--amber-dim); color: var(--amber); }
+  .status-debt { background: var(--red-dim); color: var(--red); }
+
+  .article-footer {
+    border-top: 1px solid var(--border);
+    padding-top: 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+
+  .footer-left p {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    margin: 0 0 6px;
+  }
+
+  .footer-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--emerald-dim);
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--emerald);
+    text-decoration: none;
+    letter-spacing: 0.08em;
+    transition: background 0.2s;
+  }
+
+  .footer-link:hover { background: rgba(16,185,129,0.22); }
+
+  @keyframes fadeSlideUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero { animation: fadeSlideUp 0.7s ease both; }
+  section { animation: fadeSlideUp 0.6s ease both; }
+  section:nth-child(2) { animation-delay: 0.1s; }
+  section:nth-child(3) { animation-delay: 0.15s; }
+  section:nth-child(4) { animation-delay: 0.2s; }
+  section:nth-child(5) { animation-delay: 0.25s; }
+  section:nth-child(6) { animation-delay: 0.3s; }
+
+  @media (max-width: 600px) {
+    .container { padding: 0 16px 64px; }
+    .hero { padding: 48px 0 40px; }
+    .coin-hero { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ═══ HERO ═══ -->
+  <header class="hero">
+    <div class="hero-eyebrow">Privacy Technology · Bluetooth Mesh · Monero</div>
+
+    <h1>
+      Bluetooth Mesh,<br>
+      Now With <span class="accent italic">Money</span>:<br>
+      Sending Monero Over<br>
+      Bitchat's Offline Network
+    </h1>
+
+    <div class="hero-meta">
+      <span>📅 July 2026</span>
+      <span class="sep">·</span>
+      <span>🔗 github.com/niyid/bitchat-android/tree/with-monero</span>
+      <span class="sep">·</span>
+      <span>📱 Android · Kotlin/Java</span>
+      <span class="sep">·</span>
+      <span>⏱ 10 min read</span>
+    </div>
+
+    <p class="hero-lead">
+      Bitchat lets two phones exchange encrypted messages over Bluetooth LE with no internet
+      connection, no server, and no phone number. If a mesh can carry a message, it can carry
+      a transaction. This fork adds a full Monero wallet to Bitchat Android — send, receive,
+      and search transactions over the same offline mesh the app already uses for chat.
+    </p>
+
+    <svg class="coin-hero" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="80" cy="80" r="70" stroke="white" stroke-width="4"/>
+      <circle cx="80" cy="80" r="52" stroke="white" stroke-width="2"/>
+      <text x="80" y="98" text-anchor="middle" font-family="Playfair Display" font-size="52" font-weight="900" fill="white">ɱ</text>
+    </svg>
+  </header>
+
+  <!-- ═══ SECTION 1: THE IDEA ═══ -->
+  <section>
+    <div class="section-kicker">The Premise</div>
+    <h2>If a Mesh Can Carry a Message, It Can Carry a Transaction</h2>
+
+    <p>
+      <a href="https://github.com/permissionlesstech/bitchat-android" style="color: var(--emerald); text-decoration: none;">Bitchat</a>
+      is a decentralised, peer-to-peer messaging app that moves encrypted messages over
+      Bluetooth LE mesh networks — no internet required, no central server, no account tied
+      to a phone number. Devices discover each other directly, relay packets for one another
+      over multiple hops, and store-and-forward for peers who are temporarily offline. It is,
+      in effect, a working proof that a phone-to-phone mesh can move meaningful data without
+      any infrastructure at all.
+    </p>
+
+    <p>
+      Monero is a privacy-preserving cryptocurrency built around the same instinct applied to
+      money: transactions that are untraceable and unlinkable by default, with no bank, no card
+      network, and no intermediary who can freeze or inspect a payment. The two projects solve
+      adjacent problems — one moves messages without a server, the other moves value without a
+      custodian — and neither depends on the public internet in the way a conventional app does.
+    </p>
+
+    <div class="pull-quote">
+      <p>Since messages can be sent, then so can crypto. All it takes is a switch that determines
+      what kind of message is being sent — or it can automatically identify the kind of
+      information being carried.</p>
+      <cite>— Working premise behind this fork</cite>
+    </div>
+
+    <p>
+      This fork of <code>bitchat-android</code>, on the <code>with-monero</code> branch, follows
+      that premise through: it wires a real Monero wallet — built on the same <code>libmonero</code>
+      JNI bindings used by the Monerujo wallet — into Bitchat's existing Bluetooth mesh, encryption
+      layer, and chat UI, so that a payment is just another message type flowing through a channel
+      that already exists.
+    </p>
+
+    <div class="callout callout-info">
+      <div class="callout-icon">💭</div>
+      <div class="callout-body">
+        <strong>A decade-old idea, revisited</strong>
+        <p>I had a version of this idea a long time before this fork existed. Back in December 2016,
+        while consulting on an R&amp;D proposal for a technology company, I pitched a Bluetooth-based
+        chat app I called <em>Toastr</em> (originally "Toaster") — proximity-based messaging between
+        strangers in the same physical space, over Bluetooth, no server involved. The wrapper for
+        this article draws that line explicitly. What's below is not that pitch — it's someone
+        else's mesh, extended with someone else's wallet library — but the shape of the idea, phone
+        to phone over Bluetooth with no infrastructure in between, is the same one I wrote down
+        nearly a decade earlier.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SECTION 2: WHAT WAS ADDED ═══ -->
+  <section>
+    <div class="section-kicker">The Extension</div>
+    <h2>A Monero Wallet Grafted Onto Bitchat's Existing Mesh</h2>
+
+    <p>
+      The integration lands as a self-contained <code>monero</code> package alongside a ported
+      subset of the <code>com.m2049r.xmrwallet</code> wallet library (the JNI bindings behind the
+      well-known Monerujo Android wallet), plus native headers for <code>Wallet</code>,
+      <code>WalletManager</code>, and <code>PendingTransaction</code>. Nothing about Bitchat's
+      core mesh, encryption, or UI framework was replaced — the wallet code plugs into it as an
+      additional capability that rides on the same Bluetooth transport and the same
+      <code>ChatViewModel</code> that already renders every other message in the app.
+    </p>
+
+    <div class="tech-stack">
+      <div class="tech-pill"><span class="dot dot-violet"></span> Monero JNI (libmonero / xmrwallet)</div>
+      <div class="tech-pill"><span class="dot dot-green"></span> Bluetooth LE Mesh (Bitchat core)</div>
+      <div class="tech-pill"><span class="dot dot-blue"></span> TxID-based &amp; blob-based send flows</div>
+      <div class="tech-pill"><span class="dot dot-amber"></span> Multi-node transaction search</div>
+      <div class="tech-pill"><span class="dot dot-green"></span> Encrypted node credentials</div>
+      <div class="tech-pill"><span class="dot dot-violet"></span> Kotlin · Java · Jetpack Compose</div>
+    </div>
+
+    <p>
+      The footprint is substantial for a fork: roughly 5,000 lines across eleven new files —
+      a wallet state machine, a transaction manager with multi-node failover, a message protocol
+      for payments and payment requests, chat-bubble UI components for sent and received
+      transactions, and a Bluetooth transfer layer that fragments transaction data to fit
+      Bitchat's existing packet size limits.
+    </p>
+  </section>
+
+  <!-- ═══ SECTION 3: FOUR PIECES ═══ -->
+  <section>
+    <div class="section-kicker">Technical Deep Dive</div>
+    <h2>Four Pieces, Wired Into One Wallet</h2>
+
+    <div class="pillars-grid">
+      <div class="pillar pillar-violet">
+        <span class="pillar-icon">👛</span>
+        <div class="pillar-name">Component 01</div>
+        <h3>WalletSuite</h3>
+        <p>The core wallet engine — roughly 1,800 lines wrapping the Monero JNI library. Manages
+        wallet lifecycle, sync, rescan, and transaction creation through an explicit state machine
+        (<code>IDLE</code>, <code>SYNCING</code>, <code>RESCANNING</code>, <code>CLOSING</code>,
+        <code>TRANSACTION</code>) so that overlapping operations can't corrupt wallet state.</p>
+      </div>
+      <div class="pillar pillar-blue">
+        <span class="pillar-icon">🌐</span>
+        <div class="pillar-name">Component 02</div>
+        <h3>MoneroTransactionManager</h3>
+        <p>Queries one or more Monero daemon nodes in parallel to look up a transaction by ID —
+        useful because a transaction can propagate to some nodes before others. Node credentials
+        are encapsulated behind getters, and connections can be forced over TLS.</p>
+      </div>
+      <div class="pillar pillar-amber">
+        <span class="pillar-icon">📡</span>
+        <div class="pillar-name">Component 03</div>
+        <h3>MoneroChatTransferManager</h3>
+        <p>Sits between the wallet and the chat UI. Supports two ways to hand a peer money: a
+        lightweight <code>TXID_BASED</code> flow (broadcast the transaction, share the ID) and a
+        heavier <code>BLOB_BASED</code> flow that transfers the raw signed transaction blob over
+        the mesh itself.</p>
+      </div>
+      <div class="pillar pillar-emerald">
+        <span class="pillar-icon">💬</span>
+        <div class="pillar-name">Component 04</div>
+        <h3>MoneroMessageHandler</h3>
+        <p>Defines the payment protocol carried inside ordinary Bitchat messages — payments,
+        payment requests, address shares, status updates, and transaction search — as immutable
+        JSON-typed messages, with a legacy bracket-prefixed format kept for compatibility.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SECTION 4: SEND FLOW ═══ -->
+  <section>
+    <div class="section-kicker">End-to-End Flow</div>
+    <h2>Sending XMR to Someone Standing Near You</h2>
+
+    <p>
+      Because Bitchat has no concept of a persistent internet connection, a Monero send has to
+      work whether or not either device is online in the conventional sense — only the mesh link
+      to the peer, and eventually a connection to a Monero daemon to broadcast the transaction,
+      are required.
+    </p>
+
+    <div class="flow-diagram">
+      <div class="diagram-title" style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px;">
+        Monero Send — TxID-Based Flow (default)
+      </div>
+      <div class="flow-steps-list">
+
+        <div class="flow-step">
+          <div class="flow-step-num step-emerald">01</div>
+          <div class="flow-step-content">
+            <strong>Peer selected, address exchanged</strong>
+            <p>The sender picks a private peer from the existing Bitchat peer list. If the
+            receiver's Monero address isn't already known, it's requested and shared as a normal
+            mesh message — no separate contact system.</p>
+            <span class="privacy-badge">✓ Reuses Bitchat's peer discovery</span>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="flow-step-num step-blue">02</div>
+          <div class="flow-step-content">
+            <strong>Transaction created and signed locally</strong>
+            <p><code>WalletSuite</code> builds and signs the transaction on-device through the
+            wallet's JNI layer, moving into a <code>TRANSACTION</code> state that blocks other
+            wallet operations until it completes.</p>
+            <span class="privacy-badge">✓ Signing never leaves the device</span>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="flow-step-num step-amber">03</div>
+          <div class="flow-step-content">
+            <strong>Transaction broadcast, TxID shared over the mesh</strong>
+            <p>The signed transaction is submitted to a configured Monero node. Its transaction ID
+            is then sent to the recipient as an ordinary encrypted Bitchat message, rendered as a
+            payment bubble in the chat thread rather than plain text.</p>
+            <span class="privacy-badge">✓ Chat bubble UI for sent/received XMR</span>
+          </div>
+        </div>
+
+        <div class="flow-step">
+          <div class="flow-step-num step-violet">04</div>
+          <div class="flow-step-content">
+            <strong>Recipient confirms independently</strong>
+            <p>The recipient's app can look the TxID up across multiple configured nodes via
+            <code>MoneroTransactionManager</code>, rather than trusting the sender's word for it —
+            useful when the transaction hasn't propagated to every node yet.</p>
+            <span class="privacy-badge">✓ Multi-node lookup, first result wins</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <p>
+      A second, heavier path — <code>BLOB_BASED</code> — exists for moving the raw signed
+      transaction blob itself across the mesh, fragmented to match Bitchat's packet size limits,
+      rather than relying on a daemon to relay it. A <code>BOTH</code> mode attempts the TxID flow
+      first and falls back to the blob flow on failure. In the current branch, the blob path's
+      mesh-integration hooks are still stubs — the app defaults to <code>TXID_BASED</code>, which
+      is fully wired end to end.
+    </p>
+  </section>
+
+  <!-- ═══ SECTION 5: CODE SNIPPET ═══ -->
+  <section>
+    <div class="section-kicker">Under the Hood</div>
+    <h2>A Payment Is Just Another Message Type</h2>
+
+    <p>
+      The cleanest expression of the whole idea is in how a Monero payment travels through the
+      same channel as a text message: it is serialized as a small typed JSON object, indistinguishable
+      in transport terms from any other Bitchat packet, and only interpreted specially by the UI
+      layer once received.
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span>MoneroChatTransferManager.kt — Flow Mode Selection</span>
+        <span class="lang">Kotlin</span>
+      </div>
+      <div class="code-body"><span class="kw">enum class</span> <span class="ty">TransactionFlowMode</span> { <span class="prop">TXID_BASED</span>, <span class="prop">BLOB_BASED</span>, <span class="prop">BOTH</span> }
+
+<span class="kw">fun</span> <span class="fn">handleMoneroSend</span>(
+    amount: <span class="ty">String</span>,
+    selectedPrivatePeer: <span class="ty">String</span>?,
+    canReceiveMonero: <span class="ty">Boolean</span>,
+    receiverMoneroAddress: <span class="ty">String</span>?,
+    onSuccess: () -&gt; <span class="ty">Unit</span>,
+    onError: (<span class="ty">String</span>) -&gt; <span class="ty">Unit</span>
+) {
+    <span class="kw">if</span> (selectedPrivatePeer == <span class="kw">null</span>) { onError(<span class="str">"No peer selected"</span>); <span class="kw">return</span> }
+    <span class="kw">if</span> (!canReceiveMonero)          { onError(<span class="str">"Peer cannot receive Monero"</span>); <span class="kw">return</span> }
+
+    <span class="kw">when</span> (flowMode) {
+        <span class="prop">TXID_BASED</span> -&gt; <span class="fn">sendWithTxIdFlow</span>(amount, selectedPrivatePeer, receiverMoneroAddress, onSuccess, onError)
+        <span class="prop">BLOB_BASED</span> -&gt; <span class="fn">sendWithBlobFlow</span>(amount, selectedPrivatePeer, receiverMoneroAddress, onSuccess, onError)
+        <span class="prop">BOTH</span>       -&gt; <span class="fn">sendWithTxIdFlow</span>(amount, selectedPrivatePeer, receiverMoneroAddress, onSuccess) { error -&gt;
+            <span class="fn">sendWithBlobFlow</span>(amount, selectedPrivatePeer, receiverMoneroAddress, onSuccess, onError) <span class="cm">// fallback</span>
+        }
+    }
+}</div>
+    </div>
+
+    <p>
+      On the wallet side, the state machine that guards every sensitive operation is deliberately
+      narrow — a transaction can only be created or submitted from <code>IDLE</code>, and every
+      transition back to <code>IDLE</code> happens in a <code>finally</code> block so a failed send
+      can't leave the wallet stuck mid-operation.
+    </p>
+  </section>
+
+  <!-- ═══ SECTION 6: COMPARISON ═══ -->
+  <section>
+    <div class="section-kicker">Architecture</div>
+    <h2>Payments Without a Payment Processor</h2>
+
+    <p>
+      The comparison that matters here isn't Bitchat versus a normal messaging app — it's this
+      mesh-based payment flow versus a conventional mobile money transfer, where a bank, a card
+      network, or a payment processor sits in the middle of every transaction.
+    </p>
+
+    <div class="compare-cards">
+
+      <div class="compare-header">
+        <div class="compare-header-cell">Dimension</div>
+        <div class="compare-header-cell">🔴 Conventional Mobile Payment</div>
+        <div class="compare-header-cell">🟢 Bitchat + Monero</div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-cell dim-label">🌐 Connectivity required</div>
+        <div class="compare-cell bad">Internet + processor uptime</div>
+        <div class="compare-cell good">Bluetooth mesh link to peer; daemon only to broadcast</div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-cell dim-label">🏦 Intermediary</div>
+        <div class="compare-cell bad">Bank, card network, payment app operator</div>
+        <div class="compare-cell good">None — daemon nodes only relay, never custody funds</div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-cell dim-label">🪪 Identity</div>
+        <div class="compare-cell bad">KYC'd account, phone number, card details</div>
+        <div class="compare-cell good">Monero address; no phone number required by the mesh</div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-cell dim-label">🔍 Traceability</div>
+        <div class="compare-cell bad">Fully linkable ledger entry</div>
+        <div class="compare-cell good">Monero ring signatures / stealth addresses</div>
+      </div>
+
+      <div class="compare-row">
+        <div class="compare-cell dim-label">📶 Delivery notice</div>
+        <div class="compare-cell mid">Push notification via processor's servers</div>
+        <div class="compare-cell good">Chat-bubble message over the same mesh channel</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═══ SECTION 7: HONEST ASSESSMENT ═══ -->
+  <section>
+    <div class="section-kicker">Honest Assessment</div>
+    <h2>What's Solid, What's Still Debt</h2>
+
+    <p>
+      This is a fork with a real, working core and some clearly-labelled unfinished edges — worth
+      stating plainly rather than glossing over, since the project's own code review notes are
+      admirably specific about it.
+    </p>
+
+    <div class="status-table">
+      <div class="status-row head">
+        <div class="status-cell">Component</div>
+        <div class="status-cell">Status</div>
+        <div class="status-cell">Notes</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">WalletSuite</div>
+        <div class="status-cell"><span class="status-pill status-solid">Solid</span></div>
+        <div class="status-cell">State machine cleaned up; dead states removed; real transaction submission wired in.</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">MoneroTransactionManager</div>
+        <div class="status-cell"><span class="status-pill status-solid">Solid</span></div>
+        <div class="status-cell">Node credentials encapsulated; TLS-aware connections.</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">MoneroMessageHandler</div>
+        <div class="status-cell"><span class="status-pill status-solid">Solid</span></div>
+        <div class="status-cell">Message types are immutable data classes.</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">MoneroChatTransferManager</div>
+        <div class="status-cell"><span class="status-pill status-solid">Solid</span></div>
+        <div class="status-cell">TxID send path fixed end-to-end; balance and null-safety issues resolved.</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">BitchatMoneroTransfer (blob path)</div>
+        <div class="status-cell"><span class="status-pill status-partial">Partial</span></div>
+        <div class="status-cell">JSON parsing fixed; mesh send/broadcast hooks remain stubs. App defaults to TxID flow, so this doesn't affect normal use.</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">MoneroBluetoothService</div>
+        <div class="status-cell"><span class="status-pill status-debt">Known debt</span></div>
+        <div class="status-cell">Runs a second, parallel BLE GATT stack alongside Bitchat's own. The correct long-term fix is a shared GATT characteristic rather than two competing servers — deferred.</div>
+      </div>
+      <div class="status-row">
+        <div class="status-cell">DaemonConfigDialog</div>
+        <div class="status-cell"><span class="status-pill status-solid">Fixed</span></div>
+        <div class="status-cell">Node credentials moved into <code>EncryptedSharedPreferences</code> rather than plaintext storage.</div>
+      </div>
+    </div>
+
+    <div class="callout callout-warn">
+      <div class="callout-icon">🔧</div>
+      <div class="callout-body">
+        <strong>Two GATT servers is the one to watch</strong>
+        <p>The most consequential remaining issue is architectural: a dedicated
+        <code>MoneroBluetoothService</code> reimplements its own BLE GATT server and client rather
+        than extending Bitchat's existing <code>BluetoothGattServerManager</code>. Running two GATT
+        servers on the same device risks resource conflicts on most Android hardware. What already
+        works from this class — Monero-capability advertisement during peer discovery and the
+        Java/Kotlin interop bridge — is useful; the parallel GATT stack is the part that needs a
+        structural refactor before this should be considered production-ready.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SECTION 8: CONCLUSION ═══ -->
+  <section>
+    <div class="section-kicker">Conclusion</div>
+    <h2>A Mesh That Was Always Capable of More Than Chat</h2>
+
+    <p>
+      What makes this fork interesting isn't novelty in either half — Bluetooth mesh messaging and
+      Monero wallets both exist independently and are well understood. It's the fact that grafting
+      one onto the other required surprisingly little new infrastructure: the mesh, the encryption,
+      the peer discovery, and the chat UI were all already there, built for text. A payment is,
+      structurally, just a message with a different payload.
+    </p>
+
+    <p>
+      That's the same intuition I had almost a decade before this repository existed, in a much
+      simpler form — proximity-based Bluetooth messaging as a platform for more than chat. Seeing
+      it actually built, with a real wallet library and a real mesh underneath it, is a good
+      reminder that the interesting ideas are rarely the hard part. The execution — state machines
+      that don't corrupt wallets, GATT servers that don't collide, transaction flows that degrade
+      gracefully when a peer goes offline — is where the real work lives, and this fork is
+      refreshingly candid about exactly how much of that work remains.
+    </p>
+
+    <div class="pull-quote">
+      <p>A mesh built to carry a sentence can be taught to carry a transaction. The hard part was
+      never the wire — it was making sure the wallet on the other end doesn't fall over.</p>
+      <cite>— Article summary</cite>
+    </div>
+
+    <p>
+      The source is on the <code>with-monero</code> branch of the fork below — open, auditable,
+      and upfront in its own commit history about what's finished and what's marked as debt.
+    </p>
+  </section>
+
+  <!-- ═══ FOOTER ═══ -->
+  <footer class="article-footer">
+    <div class="footer-left">
+      <p>SOURCE REPOSITORY</p>
+      <p style="margin-bottom: 12px; color: var(--muted-hi)">github.com/niyid/bitchat-android · branch: with-monero</p>
+      <p>UPSTREAM · permissionlesstech/bitchat-android</p>
+    </div>
+    <a class="footer-link" href="https://github.com/niyid/bitchat-android/tree/with-monero" target="_blank">
+      ↗ View on GitHub
+    </a>
+  </footer>
+
+</div>
+</body>
+</html>
