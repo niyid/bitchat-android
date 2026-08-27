@@ -15,6 +15,7 @@
 <meta property="og:title" content="No Bars, No Bank, No Problem: I Taught Bitchat's Mesh to Carry Money">
 <meta property="og:description" content="Bitchat moves encrypted messages over Bluetooth with no internet and no server. This extension gives it a Monero wallet, so it moves private payments the same way — phone to phone, no bank in between.">
 <meta property="og:url" content="https://niyid.github.io/bitchat-android/bitchat-monero-linkedin.html">
+<meta property="og:image" content="https://niyid.github.io/bitchat-android/bitchat-monero.png">
 <meta property="og:site_name" content="Bitchat + Monero">
 <meta property="article:author" content="https://github.com/niyid">
 
@@ -22,6 +23,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="No Bars, No Bank, No Problem: I Taught Bitchat's Mesh to Carry Money">
 <meta name="twitter:description" content="An open-source Monero wallet extension for Bitchat's Bluetooth mesh — private payments between two phones, no internet, no bank, no server.">
+<meta name="twitter:image" content="https://niyid.github.io/bitchat-android/bitchat-monero.png">
 
 <!-- Canonical -->
 <link rel="canonical" href="https://niyid.github.io/bitchat-android/bitchat-monero-linkedin.html">
@@ -95,6 +97,34 @@
     border-bottom: 1px solid var(--border);
     margin-bottom: 64px;
     position: relative;
+  }
+
+  .hero-image {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1200 / 630;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-hi);
+    margin-bottom: 40px;
+  }
+
+  .hero-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .hero-image::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(6,8,13,0) 40%, rgba(6,8,13,0.85) 100%);
+  }
+
+  @media (max-width: 600px) {
+    .hero-image { aspect-ratio: 4 / 3; margin-bottom: 28px; }
   }
 
   .hero-eyebrow {
@@ -695,6 +725,10 @@
 
   <!-- ═══ HERO ═══ -->
   <header class="hero">
+    <div class="hero-image">
+      <img src="bitchat-monero.png" alt="Bitchat Bluetooth mesh network extended with a Monero wallet — no internet, no server, no bank">
+    </div>
+
     <div class="hero-eyebrow">Open Source · Bluetooth Mesh · Monero</div>
 
     <h1>
@@ -718,12 +752,6 @@
       gives it a real Monero wallet, so the same offline mesh that carries a text message can
       now carry a private payment. No bank in the middle. No signal required.
     </p>
-
-    <svg class="coin-hero" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="80" cy="80" r="70" stroke="white" stroke-width="4"/>
-      <circle cx="80" cy="80" r="52" stroke="white" stroke-width="2"/>
-      <text x="80" y="98" text-anchor="middle" font-family="Playfair Display" font-size="52" font-weight="900" fill="white">ɱ</text>
-    </svg>
   </header>
 
   <!-- ═══ SECTION 1: THE PROBLEM/IDEA ═══ -->
