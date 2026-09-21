@@ -1,0 +1,87 @@
+name: Build and Release APKs
+
+on:
+  push:
+    branches:
+      - main
+      - with-monero
+    tags:
+      - "v*.*.*"
+  pull_request:
+    branches:
+      - main
+      - with-monero
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create GitHub Release with attached APKs"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APKs
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java Development Kit (JDK 21)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-read-only: false
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Organize APK Artifacts and Generate Checksums
+        run: |
+          mkdir -p build-output/apk
+          find app/build/outputs/apk/ -type f -name "*.apk" -exec cp {} build-output/apk/ \;
+          cd build-output/apk
+          sha256sum *.apk > SHA256SUMS.txt
+          echo "=== Built APKs and SHA256 Checksums ==="
+          cat SHA256SUMS.txt
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitchat-monero-apks
+          path: build-output/apk/*
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build-output/apk/*.apk
+            build-output/apk/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
