@@ -46,3 +46,10 @@
 -keepclassmembers class * implements android.location.LocationListener {
     public <methods>;
 }
+
+# Monero wallet JNI (native code resolves these by name)
+-keep class com.m2049r.xmrwallet.** { *; }
+-keep class com.bitchat.android.monero.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
