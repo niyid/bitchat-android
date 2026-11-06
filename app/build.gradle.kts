@@ -36,12 +36,6 @@ android {
         }
     }
 
-    sourceSets {
-        getByName("main") {
-            jniLibs.srcDirs("src/main/jniLibs")
-        }
-    }
-
     defaultConfig {
         applicationId = "com.bitchat.droid"
         minSdk = libs.versions.minSdk.get().toInt()
@@ -299,7 +293,7 @@ tasks.register<JavaExec>("runMoneroFetcher") {
     
     // Optional: Pass arguments (transaction ID, etc.)
     if (project.hasProperty("txid")) {
-        args(project.property("txid"))
+        args(project.property("txid").toString())
     }
     
     // Set working directory (optional)
@@ -329,7 +323,7 @@ tasks.register<JavaExec>("searchTransaction") {
     
     // Get transaction ID from command line
     if (project.hasProperty("txid")) {
-        args(project.property("txid"))
+        args(project.property("txid").toString())
     } else {
         println("Usage: ./gradlew searchTransaction -Ptxid=YOUR_TRANSACTION_ID")
     }

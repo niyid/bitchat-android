@@ -1924,15 +1924,15 @@ class ChatViewModel(
     }
 
     fun sendDirectMessage(peer: String, message: String) {
-        val recipientNickname = meshService.getPeerNicknames()[peer]
+        val recipientNickname = mesh.getPeerNicknames()[peer]
         privateChatManager.sendPrivateMessage(
             message,
             peer,
             recipientNickname,
             state.getNicknameValue(),
-            meshService.myPeerID
+            mesh.myPeerID
         ) { messageContent, peerID, recipientNicknameParam, messageId ->
-            val router = com.bitchat.android.services.MessageRouter.getInstance(getApplication(), meshService)
+            val router = com.bitchat.android.services.MessageRouter.getInstance(getApplication(), mesh)
             router.sendPrivate(messageContent, peerID, recipientNicknameParam, messageId)
         }
     }
@@ -2013,7 +2013,7 @@ class ChatViewModel(
             viewModel = this@ChatViewModel,
             walletSuite = walletSuite!!,
             messageHandler = moneroMessageHandler,
-            sendMessageCallback = { content, peerID -> sendDirectMessage(peerID, content) }
+            sendMessageCallback = { peerID, content -> sendDirectMessage(peerID, content) }
         )
     }
 
