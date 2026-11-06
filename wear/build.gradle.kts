@@ -120,6 +120,8 @@ val sharedSourceIncludes = listOf(
 )
 val sharedSourceExcludes = listOf(
     "com/bitchat/android/model/FileSharingManager.kt",
+    // Monero-only legacy chat model; references the phone-only monero package.
+    "com/bitchat/android/model/Message.java",
     // The watch has no spam filter toggle, so it keeps the filter's default (on).
     "com/bitchat/android/spam/SpamFilterPreferences.kt",
     // Legacy phone monolith and Wi-Fi Aware multiplexer; the watch composes its own service

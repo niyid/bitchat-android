@@ -927,7 +927,7 @@ public class WalletSuite {
                 return cachedDaemonHeight.get();
             }
 
-            boolean useSsl = walletManager.isDaemonSsl();
+            boolean useSsl = walletManager.isForceSsl();
             String scheme = useSsl ? "https" : "http";
             String daemonUrl = scheme + "://" + daemonAddress + ":" + daemonPort + "/get_height";
             URL url = new URL(daemonUrl);
