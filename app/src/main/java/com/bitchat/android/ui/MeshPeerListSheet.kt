@@ -1873,7 +1873,7 @@ fun PrivateChatSheet(
                         },
                         onSend = {
                             if (messageText.text.trim().isNotEmpty()) {
-                                viewModel.sendMessage(messageText.text.trim()) { accepted ->
+                                viewModel.sendPrivateChatSheetMessage(peerID, messageText.text.trim()) { accepted ->
                                     if (accepted) {
                                         messageText =
                                             androidx.compose.ui.text.input.TextFieldValue("")
